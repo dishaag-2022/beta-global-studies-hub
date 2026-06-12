@@ -4,10 +4,13 @@ import { WebView } from 'react-native-webview';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { Camera } from 'expo-camera';
+import { Audio } from 'expo-av';
 
 export default function App() {
   const webViewRef = useRef(null);
   const [expoPushToken, setExpoPushToken] = useState('');
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
 
   // 👇 YAHAN APNA NETLIFY/LOCALTUNNEL WALA LINK DAAL
   const WEB_APP_URL = "https://beta-global-studies-archive.netlify.app/";
@@ -17,10 +20,25 @@ export default function App() {
     const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
 
     async function setupSystem() {
+      // 🔥 1. ASK FOR CAMERA & MIC PERMISSIONS FIRST (For WebRTC Calling)
+      try {
+        const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
+        const { status: micStatus } = await Audio.requestPermissionsAsync();
+        
+        if (cameraStatus === 'granted' && micStatus === 'granted') {
+          console.log("Media Permissions Granted Natively!");
+        } else {
+          console.log("Media Permissions Denied!");
+        }
+        setPermissionsGranted(true);
+      } catch (error) {
+        console.log("Error requesting media permissions:", error);
+        setPermissionsGranted(true); // Proceed anyway to avoid infinite loading
+      }
+
       // 🚨 ABSOLUTE BYPASS FOR EXPO GO 🚨
-      // Agar Expo Go hai, toh notification ka koi function call mat karo
       if (isExpoGo) {
-        console.log("Running in Expo Go! Bypassing all Notification setup to prevent crash.");
+        console.log("Running in Expo Go! Bypassing Notification setup.");
         setExpoPushToken("DUMMY_TOKEN_FOR_EXPO_GO_TESTING");
         return;
       }
@@ -85,7 +103,8 @@ export default function App() {
   }, []);
 
   // --- EDUCATIONAL DECOY LOADING SCREEN ---
-  if (!expoPushToken) {
+  // Wait for BOTH Token and Camera Permissions before loading the WebView
+  if (!expoPushToken || !permissionsGranted) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
@@ -94,7 +113,7 @@ export default function App() {
     );
   }
 
-  // Inject token securely into LocalStorage AND send postMessage so Next.js catches it immediately
+  // Inject token securely into LocalStorage AND send postMessage
   const INJECTED_JAVASCRIPT = `
     window.EXPO_PUSH_TOKEN = "${expoPushToken}";
     window.localStorage.setItem("EXPO_PUSH_TOKEN", "${expoPushToken}");
@@ -111,6 +130,17 @@ export default function App() {
         injectedJavaScript={INJECTED_JAVASCRIPT}
         allowsBackForwardNavigationGestures
         bounces={false}
+        
+        // 🔥 MAGIC PROPS FOR WEBRTC (CALLING) TO WORK 🔥
+        allowsInlineMediaPlayback={true}
+        mediaPlaybackRequiresUserAction={false}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        
+        // Android me WebView ki internal permission automatically grant karne ke liye
+        onPermissionRequest={(request) => {
+          request.grant();
+        }}
       />
     </View>
   );
