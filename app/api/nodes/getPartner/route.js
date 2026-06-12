@@ -7,14 +7,19 @@ export async function POST(req) {
     await connectToDatabase();
     const { username } = await req.json();
 
-    // 1. Fix: Use 'Room' instead of 'NodeModel'
-    // 2. Fix: Check inside the nested objects using dot notation
+    if (!username) {
+      return NextResponse.json({ success: false, error: "Username required" });
+    }
+
+    const cleanUsername = username.trim();
+    const usernameRegex = new RegExp('^' + cleanUsername + '$', 'i'); 
+
     const room = await Room.findOne({
        $or: [
-         { "userA.uid": username }, 
-         { "userA.name": username },
-         { "userB.uid": username },
-         { "userB.name": username }
+         { "userA.uid": usernameRegex },
+         { "userA.name": usernameRegex },
+         { "userB.uid": usernameRegex },
+         { "userB.name": usernameRegex }
        ]
     });
 
@@ -22,18 +27,22 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Node not found" });
     }
 
-    // 3. Fix: Safely extract partner's name from the nested object
-    let partnerName = "Unknown";
-    if (room.userA.uid === username || room.userA.name === username) {
-      partnerName = room.userB.name || room.userB.uid;
+    const isMatch = (dbValue) => {
+       return dbValue && dbValue.trim().toLowerCase() === cleanUsername.toLowerCase();
+    };
+
+    let partnerId = "Unknown";
+
+    // NAME KI JAGAH UID RETURN KAREGA TAAKI TOKENS MATCH HO JAYEIN
+    if (isMatch(room.userA.uid) || isMatch(room.userA.name)) {
+      partnerId = room.userB.uid || room.userB.name; 
     } else {
-      partnerName = room.userA.name || room.userA.uid;
+      partnerId = room.userA.uid || room.userA.name;
     }
 
-    // 4. Fix: Return 'room.channelName' because that's what is in your Room.js schema
     return NextResponse.json({ 
       success: true, 
-      partner: partnerName, 
+      partner: partnerId, 
       nodeName: room.channelName 
     });
     

@@ -8,17 +8,19 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
     
-    const { subscription, username } = await req.json(); // subscription hi hamara Expo Token hai
+    const { subscription, username } = await req.json();
 
     if (!subscription || !username) {
       return NextResponse.json({ success: false, error: "Missing data" });
     }
 
-    // Token DB mein save ya update (Upsert) kar do
+    const cleanUsername = username.trim();
+
+    // Regex se strict search aur clean string save karo
     await PushToken.findOneAndUpdate(
-      { username: username },
-      { token: subscription },
-      { upsert: true, new: true }
+      { username: new RegExp('^' + cleanUsername + '$', 'i') },
+      { username: cleanUsername, token: subscription },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
     return NextResponse.json({ success: true, message: "Token permanently saved to DB" });
