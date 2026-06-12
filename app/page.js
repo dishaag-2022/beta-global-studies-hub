@@ -35,14 +35,10 @@ export default function Home() {
 
   const [expandedImage, setExpandedImage] = useState(null);
   
-  // ==========================================
-  // WEBRTC CALLING STATES (PERFECTED)
-  // ==========================================
   const [callState, setCallState] = useState("IDLE");
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
   
-  // New Solid Track States
   const [localVideoOn, setLocalVideoOn] = useState(false);
   const [isMuted, setIsMuted] = useState(false); 
   const [incomingVideoType, setIncomingVideoType] = useState(false); 
@@ -66,8 +62,35 @@ export default function Home() {
   const [viewportHeight, setViewportHeight] = useState("100dvh");
 
   // ==========================================
-  // PEERJS INITIALIZATION
+  // 🔥 FIX 1: NATIVE WEBVIEW BRIDGE (TOKEN RECEIVER)
   // ==========================================
+  useEffect(() => {
+    if (appState !== "CHAT" || !currentUser) return;
+
+    const handleNativeMessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Jab React Native WebView se token bhejega, ye catch karega aur DB me save karega
+        if (data.type === 'EXPO_PUSH_TOKEN') {
+          console.log("Received Token from Native App, Subscribing...");
+          fetch("/api/subscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subscription: data.token, username: currentUser.name })
+          });
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener("message", handleNativeMessage);
+    document.addEventListener("message", handleNativeMessage); // For Android compat
+
+    return () => {
+      window.removeEventListener("message", handleNativeMessage);
+      document.removeEventListener("message", handleNativeMessage);
+    };
+  }, [appState, currentUser]);
+
   useEffect(() => {
     if (appState !== "CHAT" || !currentUser) return;
 
@@ -95,7 +118,6 @@ export default function Home() {
     return () => { if (peerInstance.current) peerInstance.current.destroy(); };
   }, [appState, currentUser]);
 
-  // NEVER DESTROY VIDEO REFS - Always update srcObject
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
@@ -105,7 +127,6 @@ export default function Home() {
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
-      // This catch block prevents Chrome from throwing autoplay errors
       remoteVideoRef.current.play().catch(e => console.log("Audio play issue handled."));
     }
   }, [remoteStream, callState]);
@@ -182,9 +203,6 @@ export default function Home() {
     setCallState("IDLE");
   };
 
-  // ==========================================
-  // HARDWARE TRACK TOGGLES (THE REAL FIX)
-  // ==========================================
   const toggleVideoTrack = () => {
     if (localStream) {
       const videoTracks = localStream.getVideoTracks();
@@ -209,56 +227,12 @@ export default function Home() {
     }
   };
 
-  // ==========================================
-  // PUSH, LOGOUT, PANIC LOGIC
-  // ==========================================
   const handleLogout = () => {
     setAppState("DECOY"); setStudentId(""); setPassword(""); setCurrentUser(null); setMessages([]);
     setIsPeerActive(false); setIsPeerTyping(false); setTargetNode(""); setActiveChannel("");
     setInput(""); setShowEmojis(false); setExpandedImage(null); endCall();
     clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current);
   };
-
-  // PANIC LOGIC (TEMPORARILY DISABLED FOR BROWSER TESTING)
-  /*
-  useEffect(() => {
-    if (appState === "CHAT") {
-      window.history.pushState(null, null, window.location.href);
-      const handlePopState = () => handleLogout();
-      window.addEventListener("popstate", handlePopState);
-      return () => window.removeEventListener("popstate", handlePopState);
-    }
-  }, [appState]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        if (ignorePanicRef.current) return; 
-        endCall();
-        const blackout = document.createElement('div');
-        blackout.id = 'stealth-blackout';
-        blackout.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#09090b;z-index:9999999;';
-        document.body.appendChild(blackout);
-        handleLogout();
-        setTimeout(() => { const el = document.getElementById('stealth-blackout'); if (el) el.remove(); }, 500);
-      } 
-      else if (document.visibilityState === "visible") {
-        if (ignorePanicRef.current) { setTimeout(() => { ignorePanicRef.current = false; }, 1500); }
-      }
-    };
-    const handleBlur = () => { if (!ignorePanicRef.current) handleLogout(); };
-    const handleFocus = () => { if (ignorePanicRef.current) setTimeout(() => { ignorePanicRef.current = false; }, 1500); };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("blur", handleBlur);
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("blur", handleBlur);
-      window.removeEventListener("focus", handleFocus);
-    };
-  }, []);
-  */
 
   useEffect(() => {
     if (appState !== "CHAT") return;
@@ -360,12 +334,33 @@ export default function Home() {
        }));
     });
 
-    const pingInterval = setInterval(() => {
+    const sendActivePing = () => {
       const pingText = CryptoJS.AES.encrypt("SYS_PING_ACTIVE", SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: currentUser.name, channel: activeChannel }), });
-    }, 3000);
+    };
 
-    return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
+    // Initial ping
+    sendActivePing();
+    const pingInterval = setInterval(sendActivePing, 3000);
+
+    // ==========================================
+    // 🔥 FIX 2: APP RESUME (VISIBILITY) FIX
+    // ==========================================
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        sendActivePing(); // WebView wapas khulte hi turant status bhejo
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => { 
+      clearInterval(pingInterval); 
+      clearTimeout(peerTimeout.current); 
+      clearTimeout(typingTimeout.current); 
+      document.removeEventListener("visibilitychange", handleVisibility);
+      pusher.unsubscribe(activeChannel); 
+      pusher.disconnect(); 
+    };
   }, [appState, currentUser, activeChannel]);
 
   const scrollToBottom = () => { setTimeout(() => { if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight; }, 100); };
@@ -489,7 +484,7 @@ export default function Home() {
               </p>
             </div>
 
-            {/* Local Video Mini Player - Only shown if YOUR video track is ON */}
+            {/* Local Video Mini Player */}
             {localStream && (
               <div className={`absolute top-6 right-6 w-28 h-40 bg-black rounded-xl overflow-hidden border-2 border-white/20 shadow-2xl z-20 transition-opacity duration-300 ${localVideoOn ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
                 <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
@@ -539,7 +534,6 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Locks removed for testing so you can click freely */}
           <button type="button" onClick={() => startCall(true)} disabled={callState !== "IDLE"} className={`p-2 rounded-full transition-colors ${callState !== "IDLE" ? "opacity-30" : isDarkMode ? "bg-[#27272a] text-blue-400 hover:bg-[#3f3f46]" : "bg-blue-50 text-blue-500 hover:bg-blue-100"}`}><VideoIcon size={18} /></button>
           <button type="button" onClick={() => startCall(false)} disabled={callState !== "IDLE"} className={`p-2 rounded-full transition-colors ${callState !== "IDLE" ? "opacity-30" : isDarkMode ? "bg-[#27272a] text-green-400 hover:bg-[#3f3f46]" : "bg-green-50 text-green-500 hover:bg-green-100"}`}><Phone size={18} /></button>
           <button type="button" onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2 rounded-full transition-colors ${isDarkMode ? "bg-[#27272a] text-amber-400 hover:bg-[#3f3f46]" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}><Sun size={18} /></button>
