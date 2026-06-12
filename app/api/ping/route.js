@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
-import PushToken from "../../../models/PushToken"; // Path check kar lena
+import PushToken from "../../../models/PushToken";
 
 export async function POST(req) {
   try {
@@ -8,24 +8,20 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
 
+    // 🔥 THE FIX: Frontend se sender aur 'receiver' dono receive karo
     const { sender, receiver } = await req.json();
-    const targetUser = receiver;
-
-    if (!targetUser) {
-      return NextResponse.json({ success: false, error: "Receiver not found in request" });
+    
+    if (!receiver) {
+      return NextResponse.json({ success: false, error: "Receiver not found" });
     }
 
-    console.log(`[PING API] Sender: ${sender} trying to ping Receiver: ${targetUser}`);
-
-    // 🔥 MAGIC FIX: Case-Insensitive aur trim karke search karo!
-    // Ye 'Jay', 'jay', ' JAY ' sabko ek hi maanega.
+    // 🔥 THE FIX: Hardcoded logic hata kar direct receiver search maro
+    // Trim aur RegExp isliye taaki spaces aur case-sensitive issue na aaye
     const targetData = await PushToken.findOne({ 
-      username: new RegExp('^' + targetUser.trim() + '$', 'i') 
+      username: new RegExp('^' + receiver.trim() + '$', 'i') 
     });
 
     if (targetData && targetData.token) {
-      console.log(`[PING API] Token found for ${targetUser}: ${targetData.token}`);
-      
       await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -38,14 +34,13 @@ export async function POST(req) {
           sound: 'default',
           title: "Global Studies Hub",
           body: "New course modules have been added to your syllabus.",
-          priority: 'high', 
+          priority: 'high',
           channelId: 'default', 
         }),
       });
-      return NextResponse.json({ success: true, message: `Ping sent successfully to ${targetUser}` });
+      return NextResponse.json({ success: true, message: `Ping sent successfully to ${receiver}` });
     } else {
-      console.log(`[PING ERROR] Token missing in DB for exact username: ${targetUser}`);
-      return NextResponse.json({ success: false, error: `Token not found in DB for ${targetUser}` });
+      return NextResponse.json({ success: false, error: `Token not found for ${receiver}` });
     }
 
   } catch (error) {
