@@ -8,20 +8,16 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
 
-    // 🔥 THE FIX: Frontend se sender aur 'receiver' dono receive karo
-    const { sender, receiver } = await req.json();
+    const { sender } = await req.json();
     
-    if (!receiver) {
-      return NextResponse.json({ success: false, error: "Receiver not found" });
-    }
+    // Agar A ne bheja hai toh target B hai, aur B ne bheja hai toh target A hai
+    const targetUser = sender === "Student_A" ? "Student_B" : "Student_A";
 
-    // 🔥 THE FIX: Hardcoded logic hata kar direct receiver search maro
-    // Trim aur RegExp isliye taaki spaces aur case-sensitive issue na aaye
-    const targetData = await PushToken.findOne({ 
-      username: new RegExp('^' + receiver.trim() + '$', 'i') 
-    });
+    // MongoDB se Target User ka token nikalo
+    const targetData = await PushToken.findOne({ username: targetUser });
 
     if (targetData && targetData.token) {
+      // Magic Update: Send directly to Expo Push Server
       await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -34,13 +30,13 @@ export async function POST(req) {
           sound: 'default',
           title: "Global Studies Hub",
           body: "New course modules have been added to your syllabus.",
-          priority: 'high',
+          priority: 'high', // Wake the device up!
           channelId: 'default', 
         }),
       });
-      return NextResponse.json({ success: true, message: `Ping sent successfully to ${receiver}` });
+      return NextResponse.json({ success: true, message: "Ping sent successfully" });
     } else {
-      return NextResponse.json({ success: false, error: `Token not found for ${receiver}` });
+      return NextResponse.json({ success: false, error: "Target token not found in DB" });
     }
 
   } catch (error) {

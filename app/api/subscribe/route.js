@@ -14,17 +14,11 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Missing data" });
     }
 
-    // 🔥 MAGIC FIX: Naam ke aage-peeche ke faltu spaces hata do
-    const cleanUsername = username.trim();
-
-    // Token DB mein save ya update (Upsert) kar do (Case-insensitive search ke sath)
+    // Token DB mein save ya update (Upsert) kar do
     await PushToken.findOneAndUpdate(
-      { username: new RegExp('^' + cleanUsername + '$', 'i') }, // Pehle case-insensitive dhoondho
-      { 
-        username: cleanUsername, // Update/Insert exact clean naam
-        token: subscription 
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { username: username },
+      { token: subscription },
+      { upsert: true, new: true }
     );
 
     return NextResponse.json({ success: true, message: "Token permanently saved to DB" });

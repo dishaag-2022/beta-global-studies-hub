@@ -318,11 +318,10 @@ export default function Home() {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY);
         const text = bytes.toString(CryptoJS.enc.Utf8);
 
-        // 🔥 THE FIX: 25 Seconds wait to prevent flickering Inactive status
         if (text === "SYS_PING_ACTIVE") {
           setIsPeerActive(true);
           clearTimeout(peerTimeout.current);
-          peerTimeout.current = setTimeout(() => setIsPeerActive(false), 25000); 
+          peerTimeout.current = setTimeout(() => setIsPeerActive(false), 5000); 
           return;
         }
 
@@ -370,14 +369,13 @@ export default function Home() {
        }));
     });
 
-    // 🔥 THE FIX: Saving Netlify Credits, sending API call every 20 seconds instead of 3
     const pingInterval = setInterval(() => {
       const pingText = CryptoJS.AES.encrypt("SYS_PING_ACTIVE", SECRET_KEY).toString();
       fetch("/api/pusher", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: currentUser.name, channel: activeChannel }),
-      }).catch(() => {});
-    }, 20000);
+      });
+    }, 3000);
 
     return () => { 
       clearInterval(pingInterval); 
@@ -506,8 +504,7 @@ export default function Home() {
       await fetch("/api/ping", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // 🔥 THE FIX: 'receiver: targetNode' add kiya gaya hai
-        body: JSON.stringify({ sender: currentUser.name, receiver: targetNode }), 
+        body: JSON.stringify({ sender: currentUser.name }), 
       });
       setTimeout(() => setIsPinging(false), 3000);
     } catch (error) { setIsPinging(false); }
