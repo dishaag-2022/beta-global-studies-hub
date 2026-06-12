@@ -18,12 +18,22 @@ export default function CallOverlay({
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
 
+  // ---> UPDATE: Safely attach local stream <---
   useEffect(() => {
-    if (localVideoRef.current && localStream) localVideoRef.current.srcObject = localStream;
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
   }, [localStream]);
 
+  // ---> UPDATE: Safely attach remote stream and FORCE PLAY <---
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) remoteVideoRef.current.srcObject = remoteStream;
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      // Force the WebView to play the media to bypass mobile blocks
+      remoteVideoRef.current.play().catch((err) => {
+        console.warn("Mobile autoplay restriction blocked playback:", err);
+      });
+    }
   }, [remoteStream]);
 
   if (callState === "IDLE") return null;
@@ -54,9 +64,17 @@ export default function CallOverlay({
           
           <div className="w-full h-[70vh] bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl relative border border-[#27272a] flex items-center justify-center">
             
+            {/* ---> FIX: THIS TAG MUST ALWAYS EXIST TO PLAY AUDIO/VIDEO <--- */}
+            <video 
+              ref={remoteVideoRef} 
+              autoPlay 
+              playsInline 
+              className={`w-full h-full object-cover absolute inset-0 z-10 transition-opacity duration-300 ${(!isVideoCall || !remoteStream) ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} 
+            />
+
             {/* WAITING UI */}
             {!remoteStream && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#18181b] z-0">
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#18181b] z-20">
                 <div className="w-24 h-24 bg-zinc-800/50 rounded-full flex items-center justify-center mb-6 animate-pulse border border-zinc-700">
                   <User size={40} className="text-zinc-500" />
                 </div>
@@ -65,35 +83,32 @@ export default function CallOverlay({
               </div>
             )}
 
-            {/* VIDEO CALL LOGIC */}
-            {isVideoCall ? (
-              <video ref={remoteVideoRef} autoPlay playsInline className={`w-full h-full object-cover relative z-10 ${!remoteStream ? 'hidden' : 'block'}`} />
-            ) : (
-              /* AUDIO CALL LOGIC - Avatar UI */
-              <div className={`flex flex-col items-center gap-4 relative z-10 ${!remoteStream ? 'hidden' : 'flex'}`}>
-                <div className="w-32 h-32 bg-zinc-800 rounded-full flex items-center justify-center border-4 border-emerald-500/20">
+            {/* AUDIO CALL UI (Shows Avatar if it is a normal call and connected) */}
+            {(!isVideoCall && remoteStream) && (
+              <div className="flex flex-col items-center gap-4 relative z-20">
+                <div className="w-32 h-32 bg-zinc-800 rounded-full flex items-center justify-center border-4 border-emerald-500/20 shadow-emerald-500/10 shadow-2xl">
                   <User size={64} className="text-emerald-500" />
                 </div>
-                <span className="text-emerald-500 font-medium tracking-widest uppercase text-sm animate-pulse">Voice Call Connected</span>
+                <span className="text-emerald-500 font-medium tracking-widest uppercase text-sm animate-pulse">Secure Voice Link Active</span>
               </div>
             )}
             
-            {/* ---> NEW: DRAGGABLE LOCAL VIDEO PIP <--- */}
+            {/* DRAGGABLE LOCAL VIDEO PIP */}
             {isVideoCall && (
               <motion.div 
                 drag
                 dragConstraints={{ top: 0, left: -250, right: 0, bottom: 400 }}
                 dragElastic={0.1}
                 whileDrag={{ scale: 1.05, cursor: "grabbing" }}
-                className="absolute top-4 right-4 w-28 h-40 bg-zinc-800 rounded-xl overflow-hidden shadow-2xl border-2 border-zinc-700/50 z-20 group cursor-grab touch-none"
+                className="absolute top-4 right-4 w-28 h-40 bg-zinc-800 rounded-xl overflow-hidden shadow-2xl border-2 border-zinc-700/50 z-30 group cursor-grab touch-none"
               >
                 <video ref={localVideoRef} autoPlay playsInline muted className={`w-full h-full object-cover pointer-events-none ${isVideoMuted ? 'hidden' : ''}`} />
                 {isVideoMuted && <div className="w-full h-full flex items-center justify-center bg-zinc-900 pointer-events-none"><VideoOff size={24} className="text-slate-500" /></div>}
                 
                 <button 
                   onClick={toggleMic}
-                  onPointerDown={(e) => e.stopPropagation()} // Prevents dragging when clicking the mic
-                  className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 backdrop-blur-md p-1.5 rounded-full shadow-lg transition-colors cursor-pointer z-30"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 backdrop-blur-md p-1.5 rounded-full shadow-lg transition-colors cursor-pointer z-40"
                 >
                   {isMicMuted ? <MicOff size={14} className="text-rose-500" /> : <Mic size={14} className="text-emerald-500" />}
                 </button>
@@ -102,7 +117,7 @@ export default function CallOverlay({
           </div>
 
           {/* CONTROLS */}
-          <div className="absolute bottom-10 flex gap-6 px-8 py-4 bg-[#18181b]/80 backdrop-blur-xl border border-[#27272a] rounded-full shadow-2xl">
+          <div className="absolute bottom-10 flex gap-6 px-8 py-4 bg-[#18181b]/80 backdrop-blur-xl border border-[#27272a] rounded-full shadow-2xl z-40">
             <button onClick={toggleMic} className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${isMicMuted ? 'bg-zinc-700 text-white' : 'bg-zinc-800 text-slate-300 hover:bg-zinc-700'}`}>
               {isMicMuted ? <MicOff size={24} /> : <Mic size={24} />}
             </button>
