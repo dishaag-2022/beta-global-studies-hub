@@ -10,7 +10,7 @@ export default function App() {
   const [expoPushToken, setExpoPushToken] = useState('');
 
   // 👇 YAHAN APNA NETLIFY/LOCALTUNNEL WALA LINK DAAL
-  const WEB_APP_URL = "https://globalstudiesarchive.netlify.app";
+  const WEB_APP_URL = "https://beta-global-studies-archive.netlify.app/";
 
   useEffect(() => {
     // Check if we are running inside Expo Go

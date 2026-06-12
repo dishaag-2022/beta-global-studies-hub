@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
-import PushToken from "../../../models/PushToken";
+import PushToken from "../../../models/PushToken"; // Path check kar lena
 
 export async function POST(req) {
   try {
@@ -8,16 +8,24 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
 
-    const { sender } = await req.json();
-    
-    // Agar A ne bheja hai toh target B hai, aur B ne bheja hai toh target A hai
-    const targetUser = sender === "Student_A" ? "Student_B" : "Student_A";
+    const { sender, receiver } = await req.json();
+    const targetUser = receiver;
 
-    // MongoDB se Target User ka token nikalo
-    const targetData = await PushToken.findOne({ username: targetUser });
+    if (!targetUser) {
+      return NextResponse.json({ success: false, error: "Receiver not found in request" });
+    }
+
+    console.log(`[PING API] Sender: ${sender} trying to ping Receiver: ${targetUser}`);
+
+    // 🔥 MAGIC FIX: Case-Insensitive aur trim karke search karo!
+    // Ye 'Jay', 'jay', ' JAY ' sabko ek hi maanega.
+    const targetData = await PushToken.findOne({ 
+      username: new RegExp('^' + targetUser.trim() + '$', 'i') 
+    });
 
     if (targetData && targetData.token) {
-      // Magic Update: Send directly to Expo Push Server
+      console.log(`[PING API] Token found for ${targetUser}: ${targetData.token}`);
+      
       await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -30,13 +38,14 @@ export async function POST(req) {
           sound: 'default',
           title: "Global Studies Hub",
           body: "New course modules have been added to your syllabus.",
-          priority: 'high', // Wake the device up!
+          priority: 'high', 
           channelId: 'default', 
         }),
       });
-      return NextResponse.json({ success: true, message: "Ping sent successfully" });
+      return NextResponse.json({ success: true, message: `Ping sent successfully to ${targetUser}` });
     } else {
-      return NextResponse.json({ success: false, error: "Target token not found in DB" });
+      console.log(`[PING ERROR] Token missing in DB for exact username: ${targetUser}`);
+      return NextResponse.json({ success: false, error: `Token not found in DB for ${targetUser}` });
     }
 
   } catch (error) {
