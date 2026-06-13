@@ -697,6 +697,7 @@ export default function Home() {
           <MessageList messages={messages} isDarkMode={isDarkMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} />
           
           <MessageInput 
+            inputRef={inputRef} // 🔥 YAHAN ADD KIYA HAI FIX 
             input={input} 
             setInput={setInput} 
             handleTextSubmit={handleTextSubmit} 

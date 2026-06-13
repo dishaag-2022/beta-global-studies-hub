@@ -3,6 +3,7 @@ import { Send, Smile, Camera, Image as ImageIcon, Sticker, Search } from "lucide
 import EmojiPicker from 'emoji-picker-react';
 
 export default function MessageInput({
+  inputRef, // 🔥 THE FIX: inputRef added here
   input, setInput, handleTextSubmit, handleInputChange, isUploading,
   showEmojis, setShowEmojis, cameraInputRef, galleryInputRef, isDarkMode, 
   ignorePanicRef, scrollToBottom, dispatchMessage 
@@ -17,7 +18,7 @@ export default function MessageInput({
   // GIPHY API FETCH LOGIC
   const fetchGifs = async (query) => {
     setLoadingGifs(true);
-const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
+    const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
 
     const endpoint = query.trim()
       ? `https://api.giphy.com/v1/stickers/search?api_key=${API_KEY}&q=${encodeURIComponent(query)}&limit=30`
@@ -135,7 +136,17 @@ const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
             </div>
             
             <form onSubmit={handleTextSubmit} className="flex-1 flex items-center h-full px-1">
-              <input type="text" value={input} onChange={handleInputChange} onFocus={() => setTimeout(scrollToBottom, 300)} className={`flex-1 bg-transparent border-none text-[16px] outline-none h-full w-full ${isDarkMode ? "text-slate-200 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`} placeholder={isUploading ? "Sending photo..." : "Message..."} autoComplete="off" disabled={isUploading} />
+              <input 
+                ref={inputRef} // 🔥 THE FIX: React ref bound to input
+                type="text" 
+                value={input} 
+                onChange={handleInputChange} 
+                onFocus={() => setTimeout(scrollToBottom, 300)} 
+                className={`flex-1 bg-transparent border-none text-[16px] outline-none h-full w-full ${isDarkMode ? "text-slate-200 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`} 
+                placeholder={isUploading ? "Sending photo..." : "Message..."} 
+                autoComplete="off" 
+                disabled={isUploading} 
+              />
             </form>
 
             <div className="flex gap-0.5 items-center shrink-0 pr-1">
@@ -148,7 +159,12 @@ const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
             </div>
           </div>
 
-          <button onClick={handleTextSubmit} disabled={!input.trim() && !isUploading} className={`w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full transition-transform shadow-sm relative z-20 will-change-transform ${(!input.trim() && !isUploading) ? 'bg-blue-600/50 text-white/50 scale-95' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20'}`}>
+          <button 
+            onClick={handleTextSubmit} 
+            onPointerDown={(e) => e.preventDefault()} // 🔥 THE FIX: Prevents losing focus from input box
+            disabled={!input.trim() && !isUploading} 
+            className={`w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full transition-transform shadow-sm relative z-20 will-change-transform ${(!input.trim() && !isUploading) ? 'bg-blue-600/50 text-white/50 scale-95' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20'}`}
+          >
             <Send size={20} className="ml-1" strokeWidth={1.5} />
           </button>
         </div>
