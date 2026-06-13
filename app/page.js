@@ -150,10 +150,8 @@ export default function Home() {
     }
   }, [appState, currentUser, studentId]);
 
-  // 🔥 YAHAN HAI NAYA FIX
   const startCall = async (isVideo) => {
     try {
-      // FIX: Ensure isVideo is strictly true/false (avoiding React click event bugs)
       const isVideoReq = isVideo === true; 
       
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
@@ -168,13 +166,11 @@ export default function Home() {
       call.on('close', () => endCall());
     } catch (err) {
       console.error("Call Start Error:", err);
-      // Naya detailed error alert
       alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}\n(Check if camera is used by another app, or missing!)`);
       setCallState("IDLE");
     }
   };
 
-  // 🔥 YAHAN BHI NAYA FIX HAI
   const answerCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoCall, audio: true });
@@ -188,7 +184,6 @@ export default function Home() {
       incomingCall.on('close', () => endCall());
     } catch (err) {
       console.error("Call Answer Error:", err);
-      // Naya detailed error alert
       alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}\n(Check if camera is used by another app!)`);
       rejectCall();
     }
@@ -353,22 +348,30 @@ export default function Home() {
     channel.bind("receive_message", async (data) => {
       if (String(data.senderId).trim().toLowerCase() === studentId.trim().toLowerCase()) return;
       setLastActiveTime(Date.now()); 
+      
       try {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY); 
         const text = bytes.toString(CryptoJS.enc.Utf8);
         
-        if (text === "SYS_PING_ACTIVE" || text === "SYS_NODE_CONNECTED") { 
-          setIsPeerActive(true); 
-          clearTimeout(peerTimeout.current); 
-          peerTimeout.current = setTimeout(() => setIsPeerActive(false), 7000); 
+        // 🔥 THE MASTER FIX: KUCH BHI Data aaye, user ko ONLINE mark kar do (Media/Stickers/Call/Ping won't show offline now)
+        setIsPeerActive(true); 
+        clearTimeout(peerTimeout.current); 
+        peerTimeout.current = setTimeout(() => setIsPeerActive(false), 7000); 
 
+        // Agar purely background ping/connect message hai, toh aage mat badho
+        if (text === "SYS_PING_ACTIVE" || text === "SYS_NODE_CONNECTED") { 
           if (text === "SYS_NODE_CONNECTED") {
              sendPresencePing();
           }
           return; 
         }
 
-        if (text === "SYS_TYPING_ACTIVE") { setIsPeerTyping(true); clearTimeout(typingTimeout.current); typingTimeout.current = setTimeout(() => setIsPeerTyping(false), 2000); return; }
+        if (text === "SYS_TYPING_ACTIVE") { 
+          setIsPeerTyping(true); 
+          clearTimeout(typingTimeout.current); 
+          typingTimeout.current = setTimeout(() => setIsPeerTyping(false), 2000); 
+          return; 
+        }
         
         if (text) {
           setIsPeerTyping(false); 
