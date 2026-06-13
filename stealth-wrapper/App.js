@@ -1,96 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, BackHandler, Platform, ActivityIndicator, Text } from 'react-native';
+import { StyleSheet, View, BackHandler, Platform, ActivityIndicator, Text, PermissionsAndroid } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { Camera } from 'expo-camera';
-import { Audio } from 'expo-av';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
   const webViewRef = useRef(null);
   const [expoPushToken, setExpoPushToken] = useState('');
-  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [isSystemReady, setIsSystemReady] = useState(false);
 
-  // 👇 YAHAN APNA NETLIFY/LOCALTUNNEL WALA LINK DAAL
   const WEB_APP_URL = "https://beta-global-studies-archive.netlify.app/";
 
   useEffect(() => {
-    // Check if we are running inside Expo Go
-    const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
-
-    async function setupSystem() {
-      // 🔥 1. ASK FOR CAMERA & MIC PERMISSIONS FIRST (For WebRTC Calling)
-      try {
-        const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
-        const { status: micStatus } = await Audio.requestPermissionsAsync();
-        
-        if (cameraStatus === 'granted' && micStatus === 'granted') {
-          console.log("Media Permissions Granted Natively!");
-        } else {
-          console.log("Media Permissions Denied!");
-        }
-        setPermissionsGranted(true);
-      } catch (error) {
-        console.log("Error requesting media permissions:", error);
-        setPermissionsGranted(true); // Proceed anyway to avoid infinite loading
-      }
-
-      // 🚨 ABSOLUTE BYPASS FOR EXPO GO 🚨
-      if (isExpoGo) {
-        console.log("Running in Expo Go! Bypassing Notification setup.");
-        setExpoPushToken("DUMMY_TOKEN_FOR_EXPO_GO_TESTING");
-        return;
-      }
-
-      // --- ASLI NOTIFICATION LOGIC (Sirf APK me chalega) ---
-      try {
-        Notifications.setNotificationHandler({
-          handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-          }),
-        });
-
-        if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'default',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#FF231F7C',
-          });
-        }
-
-        if (Device.isDevice) {
-          const { status: existingStatus } = await Notifications.getPermissionsAsync();
-          let finalStatus = existingStatus;
-          if (existingStatus !== 'granted') {
-            const { status } = await Notifications.requestPermissionsAsync();
-            finalStatus = status;
-          }
-          if (finalStatus !== 'granted') {
-            console.log('Failed to get push token!');
-            setExpoPushToken("DUMMY_TOKEN_FAIL");
-            return;
-          }
-          const tokenData = await Notifications.getExpoPushTokenAsync({
-            projectId: Constants.expoConfig?.extra?.eas?.projectId || "ff492ade-996c-4402-840b-c1fe3021bf91", 
-          });
-          setExpoPushToken(tokenData.data);
-        } else {
-          setExpoPushToken("DUMMY_TOKEN_SIMULATOR");
-        }
-      } catch (error) {
-        console.log("Notification setup failed:", error);
-        setExpoPushToken("DUMMY_TOKEN_ERROR");
-      }
-    }
-
-    // Call the setup function
-    setupSystem();
-
-    // Hardware Back Button logic for Android
     const backAction = () => {
       if (webViewRef.current) {
         webViewRef.current.goBack();
@@ -102,9 +27,71 @@ export default function App() {
     return () => backHandler.remove();
   }, []);
 
-  // --- EDUCATIONAL DECOY LOADING SCREEN ---
-  // Wait for BOTH Token and Camera Permissions before loading the WebView
-  if (!expoPushToken || !permissionsGranted) {
+  useEffect(() => {
+    async function bootSystem() {
+      try {
+        if (Platform.OS === 'android') {
+          await PermissionsAndroid.requestMultiple([
+            PermissionsAndroid.PERMISSIONS.CAMERA,
+            PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+            ...(Platform.Version >= 33 ? [PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS] : [])
+          ]);
+        }
+
+        const isExpoGo = Constants.appOwnership === 'expo' || Constants.executionEnvironment === 'storeClient';
+        if (isExpoGo) {
+          setExpoPushToken("DUMMY_TOKEN_FOR_EXPO_GO");
+        } else {
+          Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+              shouldShowAlert: true,
+              shouldPlaySound: true,
+              shouldSetBadge: false,
+            }),
+          });
+
+          if (Platform.OS === 'android') {
+            await Notifications.setNotificationChannelAsync('default', {
+              name: 'default',
+              importance: Notifications.AndroidImportance.MAX,
+              vibrationPattern: [0, 250, 250, 250],
+              lightColor: '#FF231F7C',
+            });
+          }
+
+          if (Device.isDevice) {
+            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            let finalStatus = existingStatus;
+            if (existingStatus !== 'granted') {
+              const { status } = await Notifications.requestPermissionsAsync();
+              finalStatus = status;
+            }
+            if (finalStatus === 'granted') {
+              // 👇 Yahan maine tera exact naya ID daal diya hai
+              const tokenData = await Notifications.getExpoPushTokenAsync({
+                projectId: Constants.expoConfig?.extra?.eas?.projectId || "5d96d1da-897e-4961-97e0-f98a660bd26a", 
+              });
+              setExpoPushToken(tokenData.data);
+            } else {
+              setExpoPushToken("DUMMY_TOKEN_FAIL");
+            }
+          } else {
+            setExpoPushToken("DUMMY_TOKEN_SIMULATOR");
+          }
+        }
+      } catch (error) {
+        console.warn("Boot warning bypassed safely:", error);
+        setExpoPushToken("DUMMY_TOKEN_ERROR");
+      } finally {
+        setIsSystemReady(true);
+        await SplashScreen.hideAsync().catch(() => {});
+      }
+    }
+
+    bootSystem();
+  }, []);
+
+  if (!isSystemReady || !expoPushToken) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
@@ -113,10 +100,12 @@ export default function App() {
     );
   }
 
-  // Inject token securely into LocalStorage AND send postMessage
+  // Inject token securely
   const INJECTED_JAVASCRIPT = `
     window.EXPO_PUSH_TOKEN = "${expoPushToken}";
-    window.localStorage.setItem("EXPO_PUSH_TOKEN", "${expoPushToken}");
+    try {
+      window.localStorage.setItem("EXPO_PUSH_TOKEN", "${expoPushToken}");
+    } catch(e) {}
     window.postMessage(JSON.stringify({ type: 'EXPO_PUSH_TOKEN', token: "${expoPushToken}" }), '*');
     true; 
   `;
@@ -130,14 +119,10 @@ export default function App() {
         injectedJavaScript={INJECTED_JAVASCRIPT}
         allowsBackForwardNavigationGestures
         bounces={false}
-        
-        // 🔥 MAGIC PROPS FOR WEBRTC (CALLING) TO WORK 🔥
         allowsInlineMediaPlayback={true}
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
-        
-        // Android me WebView ki internal permission automatically grant karne ke liye
         onPermissionRequest={(request) => {
           request.grant();
         }}
@@ -147,26 +132,8 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#f8fafc', 
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    color: '#475569', 
-    marginTop: 16,
-    fontFamily: 'sans-serif', 
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  webview: {
-    flex: 1,
-    marginTop: Constants.statusBarHeight,
-    backgroundColor: '#f8fafc',
-  },
+  container: { flex: 1, backgroundColor: '#18181b' }, 
+  loadingContainer: { flex: 1, backgroundColor: '#f8fafc', justifyContent: 'center', alignItems: 'center' },
+  loadingText: { color: '#475569', marginTop: 16, fontFamily: 'sans-serif', fontSize: 14, fontWeight: '500' },
+  webview: { flex: 1, marginTop: Constants.statusBarHeight, backgroundColor: '#18181b' },
 });

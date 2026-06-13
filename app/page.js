@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import PusherJS from "pusher-js";
 import CryptoJS from "crypto-js";
-import { Lock } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion"; // <-- Added Framer Motion
+import { Lock, MessageSquare, Camera, Aperture, ChevronRight, ChevronLeft, X, Loader2 } from "lucide-react"; 
+import { motion, AnimatePresence } from "framer-motion";
 
 // Components
 import ModernDecoy from "./components/DecoyPortal";
@@ -15,6 +15,17 @@ import CallOverlay from "./components/CallOverlay";
 const SECRET_KEY = "tour-404-classified-key";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME; 
 const CLOUDINARY_UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET; 
+
+// 🔥 Cyberpunk / Aesthetic Filters Array
+const SNAP_FILTERS = [
+  { name: "Raw", filter: "none" },
+  { name: "Tokyo Night", filter: "contrast(1.2) saturate(1.5) hue-rotate(-15deg)" },
+  { name: "Vintage", filter: "sepia(0.6) contrast(1.1) brightness(0.9)" },
+  { name: "Cyberpunk", filter: "contrast(1.3) saturate(1.8) hue-rotate(45deg)" },
+  { name: "Noir", filter: "grayscale(1) contrast(1.2)" },
+  { name: "Dream", filter: "blur(1px) saturate(1.2) brightness(1.1)" },
+  { name: "Thermal", filter: "invert(1) hue-rotate(180deg)" },
+];
 
 export default function Home() {
   // === CORE STATES ===
@@ -50,6 +61,10 @@ export default function Home() {
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
 
+  // === SNAP MODULE STATES ===
+  const [snapFilterIndex, setSnapFilterIndex] = useState(0);
+  const [isSnapping, setIsSnapping] = useState(false);
+
   // === REFS ===
   const chatContainerRef = useRef(null); 
   const inputRef = useRef(null);
@@ -60,14 +75,12 @@ export default function Home() {
   const typingTimeout = useRef(null);
   const lastTypingTime = useRef(0);
   const ignorePanicRef = useRef(false);
+  const snapVideoRef = useRef(null); 
   
   // PeerJS Refs
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
 
-  // ==========================================
-  // GLOBAL PRE-FLIGHT PERMISSION
-  // ==========================================
   useEffect(() => {
     const askForMediaPermissionsUpfront = async () => {
       try {
@@ -81,7 +94,6 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  // === PUSH TOKEN LOGIC ===
   const registerServiceWorkerAndSubscribe = async () => {
     const getExpoToken = () => {
       return new Promise((resolve) => {
@@ -116,13 +128,18 @@ export default function Home() {
     if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
   };
 
-  // ==========================================
-  // WEBRTC CALLING LOGIC (PEERJS)
-  // ==========================================
   useEffect(() => {
-    if (appState === "CHAT" && currentUser) {
+    if ((appState === "CHAT" || appState === "SNAP_MODE") && currentUser) {
       import('peerjs').then(({ default: Peer }) => {
-        const peer = new Peer(studentId.trim()); 
+        const peer = new Peer(studentId.trim(), {
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' }
+            ]
+          }
+        });
         peer.on('call', (call) => {
           setIncomingCall(call);
           setIsVideoCall(call.metadata?.isVideo || false);
@@ -133,24 +150,31 @@ export default function Home() {
     }
   }, [appState, currentUser, studentId]);
 
+  // 🔥 YAHAN HAI NAYA FIX
   const startCall = async (isVideo) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: isVideo, audio: true });
+      // FIX: Ensure isVideo is strictly true/false (avoiding React click event bugs)
+      const isVideoReq = isVideo === true; 
+      
+      const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
       setLocalStream(stream);
-      setIsVideoCall(isVideo);
+      setIsVideoCall(isVideoReq);
       setCallState("ON_CALL");
 
-      const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo } });
+      const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo: isVideoReq } });
       currentCall.current = call;
 
       call.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       call.on('close', () => endCall());
     } catch (err) {
-      alert("Microphone/Camera permission required!");
+      console.error("Call Start Error:", err);
+      // Naya detailed error alert
+      alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}\n(Check if camera is used by another app, or missing!)`);
       setCallState("IDLE");
     }
   };
 
+  // 🔥 YAHAN BHI NAYA FIX HAI
   const answerCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoCall, audio: true });
@@ -163,7 +187,9 @@ export default function Home() {
       incomingCall.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       incomingCall.on('close', () => endCall());
     } catch (err) {
-      alert("Microphone/Camera permission required to answer!");
+      console.error("Call Answer Error:", err);
+      // Naya detailed error alert
+      alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}\n(Check if camera is used by another app!)`);
       rejectCall();
     }
   };
@@ -197,11 +223,8 @@ export default function Home() {
     }
   };
 
-  // ==========================================
-  // EFFECTS
-  // ==========================================
   useEffect(() => {
-    if (appState === "CHAT") {
+    if (appState === "CHAT" || appState === "MODE_SELECTION" || appState === "SNAP_MODE") {
       window.history.pushState(null, null, window.location.href);
       const handlePopState = () => handleLogout();
       window.addEventListener("popstate", handlePopState);
@@ -229,7 +252,7 @@ export default function Home() {
   }, [callState]);
 
   useEffect(() => {
-    if (appState !== "CHAT") return;
+    if (appState !== "CHAT" && appState !== "SNAP_MODE") return;
     const interval = setInterval(() => {
       const now = Date.now(); setTick(now); 
       setMessages((prev) => prev.filter((msg) => {
@@ -238,7 +261,7 @@ export default function Home() {
           const isExpired = (now - msg.seenAt) >= 15000;
           if (isExpired && msg.sender === "them" && msg._id) {
              fetch("/api/messages/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: msg._id }) }).catch(e => {});
-             if (msg.text.startsWith("IMG_SYS::")) {
+             if (msg.text.startsWith("IMG_SYS::") || msg.text.startsWith("VID_SYS::") || msg.text.startsWith("STK_SYS::")) {
                const parts = msg.text.split("::"); const dToken = parts[2]; 
                if (dToken && dToken !== "no_token") fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/delete_by_token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: dToken }) }).catch(e => {});
              }
@@ -252,7 +275,7 @@ export default function Home() {
   }, [appState]);
 
   useEffect(() => {
-    if (appState === "CHAT" && currentUser && activeChannel) {
+    if ((appState === "CHAT" || appState === "SNAP_MODE") && currentUser && activeChannel) {
       const fetchPendingMessages = async () => {
         try {
           const res = await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: studentId.trim() }), });
@@ -274,6 +297,23 @@ export default function Home() {
     }
   }, [appState, currentUser, activeChannel]);
 
+  useEffect(() => {
+    let stream = null;
+    if (appState === "SNAP_MODE") {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+        .then((s) => {
+          stream = s;
+          if (snapVideoRef.current) {
+            snapVideoRef.current.srcObject = s;
+          }
+        })
+        .catch(() => alert("Camera access required for Snap Module"));
+    }
+    return () => {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+    };
+  }, [appState]);
+
   const handleLogin = async (e) => {
     e.preventDefault(); setIsLoggingIn(true); setError("");
     try {
@@ -287,31 +327,49 @@ export default function Home() {
           if (nodeData.success) { setTargetNode(nodeData.partner); setActiveChannel(nodeData.nodeName); } 
           else { setError("No active communication node found."); setIsLoggingIn(false); return; }
         } catch (e) {}
-        setAppState("CHAT");
+        setAppState("MODE_SELECTION");
         await registerServiceWorkerAndSubscribe();
       } else { setError("Invalid University ID or PIN."); }
     } catch (err) { setError("Network error."); } finally { setIsLoggingIn(false); }
   };
 
   useEffect(() => {
-    if (appState !== "CHAT" || !currentUser || !activeChannel) return;
+    if ((appState !== "CHAT" && appState !== "SNAP_MODE") || !currentUser || !activeChannel) return;
     setIsPeerActive(false); setIsPeerTyping(false);
 
     const pusher = new PusherJS(process.env.NEXT_PUBLIC_PUSHER_KEY, { cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER });
     const channel = pusher.subscribe(activeChannel);
+
+    const sendPresencePing = () => {
+      const pingText = CryptoJS.AES.encrypt("SYS_PING_ACTIVE", SECRET_KEY).toString();
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+    };
+
+    const sendHello = () => {
+      const helloText = CryptoJS.AES.encrypt("SYS_NODE_CONNECTED", SECRET_KEY).toString();
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: helloText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+    };
     
     channel.bind("receive_message", async (data) => {
       if (String(data.senderId).trim().toLowerCase() === studentId.trim().toLowerCase()) return;
       setLastActiveTime(Date.now()); 
       try {
-        const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY); const text = bytes.toString(CryptoJS.enc.Utf8);
-        if (text === "SYS_PING_ACTIVE") { 
+        const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY); 
+        const text = bytes.toString(CryptoJS.enc.Utf8);
+        
+        if (text === "SYS_PING_ACTIVE" || text === "SYS_NODE_CONNECTED") { 
           setIsPeerActive(true); 
           clearTimeout(peerTimeout.current); 
-          peerTimeout.current = setTimeout(() => setIsPeerActive(false), 15000); 
+          peerTimeout.current = setTimeout(() => setIsPeerActive(false), 7000); 
+
+          if (text === "SYS_NODE_CONNECTED") {
+             sendPresencePing();
+          }
           return; 
         }
+
         if (text === "SYS_TYPING_ACTIVE") { setIsPeerTyping(true); clearTimeout(typingTimeout.current); typingTimeout.current = setTimeout(() => setIsPeerTyping(false), 2000); return; }
+        
         if (text) {
           setIsPeerTyping(false); 
           setMessages((prev) => {
@@ -325,15 +383,16 @@ export default function Home() {
 
     channel.bind("message_seen", (data) => { setMessages((prev) => prev.map((msg) => { if (msg.sender === "me" && !msg.seenAt) return { ...msg, seenAt: Date.now() }; return msg; })); });
 
-    const pingInterval = setInterval(() => {
-      const pingText = CryptoJS.AES.encrypt("SYS_PING_ACTIVE", SECRET_KEY).toString();
-      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }), });
-    }, 6000);
+    pusher.connection.bind("connected", () => {
+      sendHello();
+      setTimeout(sendHello, 500); 
+    });
+    
+    const pingInterval = setInterval(sendPresencePing, 3000); 
 
     return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
   }, [appState, currentUser, activeChannel, studentId]);
 
-  // ---> NEW: Native Smooth Scrolling Logic <---
   const scrollToBottom = () => { 
     setTimeout(() => { 
       if (chatContainerRef.current) {
@@ -354,7 +413,6 @@ export default function Home() {
     return () => { if (window.visualViewport) window.visualViewport.removeEventListener("resize", handleResize); else window.removeEventListener("resize", handleResize); };
   }, [appState]);
 
-  // === MESSAGING HANDLERS ===
   const dispatchMessage = async (msgText) => {
     if (!msgText || !targetNode) return;
     const encryptedText = CryptoJS.AES.encrypt(msgText, SECRET_KEY).toString();
@@ -374,27 +432,110 @@ export default function Home() {
     }
   };
 
-  const handleImageUpload = async (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    setIsUploading(true); const formData = new FormData(); formData.append("file", file); formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+  const handleMediaUpload = async (e) => {
+    const file = e.target.files[0]; 
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert("⚠️ File is too large! Please select a video/image under 15MB.");
+      return;
+    }
+
+    setIsUploading(true); 
+    const formData = new FormData(); 
+    formData.append("file", file); 
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    
     try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, { method: "POST", body: formData, });
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, { 
+        method: "POST", 
+        body: formData, 
+      });
       const data = await res.json();
-      if (data.secure_url) { const delToken = data.delete_token || "no_token"; await dispatchMessage(`IMG_SYS::${data.secure_url}::${delToken}`); } else alert("Upload failed. Please try again.");
-    } catch (err) { alert("Error uploading file."); } finally { setIsUploading(false); if (cameraInputRef.current) cameraInputRef.current.value = ""; if (galleryInputRef.current) galleryInputRef.current.value = ""; }
+      
+      if (data.secure_url) { 
+        const delToken = data.delete_token || "no_token"; 
+        const prefix = file.type.startsWith("video/") ? "VID_SYS" : "IMG_SYS";
+        await dispatchMessage(`${prefix}::${data.secure_url}::${delToken}`); 
+      } else {
+        alert("Upload failed. " + (data.error?.message || "Please try again."));
+      }
+    } catch (err) { 
+      alert("Error uploading file."); 
+    } finally { 
+      setIsUploading(false); 
+      if (cameraInputRef.current) cameraInputRef.current.value = ""; 
+      if (galleryInputRef.current) galleryInputRef.current.value = ""; 
+    }
+  };
+
+  const handleSnapCapture = async () => {
+    if (!snapVideoRef.current || isSnapping) return;
+    setIsSnapping(true);
+    
+    const video = snapVideoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    
+    ctx.filter = SNAP_FILTERS[snapFilterIndex].filter;
+    ctx.translate(canvas.width, 0); 
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    canvas.toBlob(async (blob) => {
+      if (!blob) { setIsSnapping(false); return; }
+      
+      const file = new File([blob], `snap_${Date.now()}.jpg`, { type: "image/jpeg" });
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      
+      try {
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        
+        if (data.secure_url) {
+          const delToken = data.delete_token || "no_token";
+          await dispatchMessage(`IMG_SYS::${data.secure_url}::${delToken}`);
+          setAppState("CHAT");
+        } else {
+          alert("Snap upload failed.");
+        }
+      } catch (error) {
+        alert("Network error sending snap.");
+      } finally {
+        setIsSnapping(false);
+      }
+    }, "image/jpeg", 0.9);
   };
 
   const handlePingPartner = async () => {
     setIsPinging(true);
-    try { await fetch("/api/ping", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sender: studentId.trim(), receiver: targetNode, channel: activeChannel }), }); setTimeout(() => setIsPinging(false), 3000); } 
-    catch (error) { setIsPinging(false); }
+    try { 
+      const res = await fetch("/api/ping", { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ sender: studentId.trim(), receiver: targetNode, channel: activeChannel }), 
+      }); 
+      
+      const data = await res.json();
+      if (!data.success) alert("❌ Ping Failed: " + data.error);
+      else alert("✅ Ping Sent: " + JSON.stringify(data.receipt));
+      setTimeout(() => setIsPinging(false), 3000); 
+    } catch (error) { 
+      alert("❌ Network Error: " + error.message);
+      setIsPinging(false); 
+    }
   };
 
-  // === RENDER UI ===
   const bgPatternDark = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%233f3f46' fill-opacity='0.2' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='16'%3E%F0%9F%98%BA%3C/text%3E%3Ctext x='80' y='80' font-size='12'%3E%E2%99%A1%3C/text%3E%3Ctext x='140' y='40' font-size='14'%3E%E2%98%86%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%E2%98%BA%3C/text%3E%3Ctext x='110' y='150' font-size='12'%3E%E2%9C%A8%3C/text%3E%3Ctext x='160' y='110' font-size='14'%3E%E2%99%A1%3C/text%3E%3Ctext x='80' y='10' font-size='10'%3E%E2%98%BA%3C/text%3E%3Ctext x='10' y='80' font-size='10'%3E%E2%9C%A8%3C/text%3E%3C/g%3E%3C/svg%3E")`;
   const bgPatternLight = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d0d5df' fill-opacity='0.4' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='16'%3E%F0%9F%98%BA%3C/text%3E%3Ctext x='80' y='80' font-size='12'%3E%E2%99%A1%3C/text%3E%3Ctext x='140' y='40' font-size='14'%3E%E2%98%86%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%E2%98%BA%3C/text%3E%3Ctext x='110' y='150' font-size='12'%3E%E2%9C%A8%3C/text%3E%3Ctext x='160' y='110' font-size='14'%3E%E2%99%A1%3C/text%3E%3Ctext x='80' y='10' font-size='10'%3E%E2%98%BA%3C/text%3E%3Ctext x='10' y='80' font-size='10'%3E%E2%9C%A8%3C/text%3E%3C/g%3E%3C/svg%3E")`;
 
-  // ---> NEW: Framer Motion Transitions <---
   return (
     <AnimatePresence mode="wait">
       
@@ -420,16 +561,153 @@ export default function Home() {
         </motion.div>
       )}
 
+      {appState === "MODE_SELECTION" && (
+        <motion.div
+          key="mode-select"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
+        >
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[100px] rounded-full" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full" />
+          </div>
+
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-10 text-center z-10">
+            <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg border ${isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
+               <Aperture className={isDarkMode ? "text-blue-400" : "text-blue-600"} size={32} />
+            </div>
+            <h2 className="text-3xl font-bold tracking-tight">Select Interface</h2>
+            <p className="text-slate-500 mt-2 text-sm">Choose your communication module</p>
+          </motion.div>
+
+          <div className="w-full max-w-sm space-y-4 z-10">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setAppState("CHAT")}
+              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-blue-500/50" : "bg-white border-slate-200 hover:border-blue-500/50"}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+                  <MessageSquare className="text-blue-500" size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-semibold text-lg">Secure Chat</h3>
+                  <p className="text-slate-500 text-xs">Encrypted text & media relay</p>
+                </div>
+              </div>
+              <ChevronRight className="text-slate-500 group-hover:text-blue-500 transition-colors" />
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setAppState("SNAP_MODE")}
+              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-purple-500/50" : "bg-white border-slate-200 hover:border-purple-500/50"}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                  <Camera className="text-purple-500" size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-semibold text-lg">Snap Module</h3>
+                  <p className="text-slate-500 text-xs">Volatile visual transmission</p>
+                </div>
+              </div>
+              <ChevronRight className="text-slate-500 group-hover:text-purple-500 transition-colors" />
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
+      {appState === "SNAP_MODE" && (
+        <motion.div
+          key="snap-mode"
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="absolute inset-0 w-full h-full bg-black z-[100] flex flex-col overflow-hidden select-none"
+        >
+          <video 
+            ref={snapVideoRef} 
+            autoPlay 
+            playsInline 
+            muted 
+            className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300"
+            style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }} 
+          />
+          
+          <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent z-20">
+             <button onClick={() => setAppState("MODE_SELECTION")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform">
+                <X size={24} />
+             </button>
+             <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">
+                {SNAP_FILTERS[snapFilterIndex].name}
+             </div>
+             <div className="w-10"></div> 
+          </div>
+
+          <div className="absolute inset-0 z-10 flex">
+            <div 
+              className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+              onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}
+            >
+               <ChevronLeft className="text-white drop-shadow-lg" size={48} />
+            </div>
+            <div 
+              className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+              onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}
+            >
+               <ChevronRight className="text-white drop-shadow-lg" size={48} />
+            </div>
+          </div>
+
+          <div className="absolute bottom-0 inset-x-0 pb-12 pt-20 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20 pointer-events-none">
+             <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md">
+                Tap Left/Right for Filters
+             </div>
+             
+             <button 
+                onClick={handleSnapCapture}
+                disabled={isSnapping}
+                className="w-20 h-20 rounded-full border-4 border-white/80 flex items-center justify-center transition-all active:scale-90 group pointer-events-auto"
+             >
+                {isSnapping ? (
+                  <Loader2 className="text-white animate-spin" size={32} />
+                ) : (
+                  <div className="w-16 h-16 bg-white rounded-full group-active:scale-95 transition-transform shadow-[0_0_20px_rgba(255,255,255,0.5)]"></div>
+                )}
+             </button>
+          </div>
+        </motion.div>
+      )}
+
       {appState === "CHAT" && (
         <motion.div key="chat" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className={`absolute inset-0 font-sans flex flex-col overflow-hidden transition-colors duration-300 z-50 ${isDarkMode ? "text-slate-200" : "text-slate-800"}`} style={{ height: viewportHeight, backgroundColor: isDarkMode ? '#09090b' : '#f4f5f9' }}>
-          <input type="file" accept="image/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleImageUpload} />
-          <input type="file" accept="image/*" ref={galleryInputRef} className="hidden" onChange={handleImageUpload} />
+          <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
+          <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
 
           <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} />
           
           <MessageList messages={messages} isDarkMode={isDarkMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} />
           
-          <MessageInput input={input} setInput={setInput} handleTextSubmit={handleTextSubmit} handleInputChange={handleInputChange} isUploading={isUploading} showEmojis={showEmojis} setShowEmojis={setShowEmojis} cameraInputRef={cameraInputRef} galleryInputRef={galleryInputRef} isDarkMode={isDarkMode} ignorePanicRef={ignorePanicRef} scrollToBottom={scrollToBottom} />
+          <MessageInput 
+            input={input} 
+            setInput={setInput} 
+            handleTextSubmit={handleTextSubmit} 
+            handleInputChange={handleInputChange} 
+            isUploading={isUploading} 
+            showEmojis={showEmojis} 
+            setShowEmojis={setShowEmojis} 
+            cameraInputRef={cameraInputRef} 
+            galleryInputRef={galleryInputRef} 
+            isDarkMode={isDarkMode} 
+            ignorePanicRef={ignorePanicRef} 
+            scrollToBottom={scrollToBottom} 
+            dispatchMessage={dispatchMessage} 
+          />
 
           <CallOverlay callState={callState} isVideoCall={isVideoCall} localStream={localStream} remoteStream={remoteStream} answerCall={answerCall} rejectCall={rejectCall} endCall={endCall} isMicMuted={isMicMuted} isVideoMuted={isVideoMuted} toggleMic={toggleMic} toggleVideo={toggleVideo} />
         </motion.div>

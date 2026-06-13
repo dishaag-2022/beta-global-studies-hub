@@ -8,7 +8,6 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
 
-    // Aage se target receiver ka exact ID aayega (hardcoded Student_A hat gaya)
     const { sender, receiver } = await req.json();
     const targetUser = receiver;
 
@@ -16,13 +15,12 @@ export async function POST(req) {
       return NextResponse.json({ success: false, error: "Receiver not found" });
     }
 
-    // Case-Insensitive search taaki space ya capital/small ka lafda na ho
     const targetData = await PushToken.findOne({ 
       username: new RegExp('^' + targetUser.trim() + '$', 'i') 
     });
 
     if (targetData && targetData.token) {
-      await fetch('https://exp.host/--/api/v2/push/send', {
+      const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
           Accept: 'application/json',
@@ -38,13 +36,20 @@ export async function POST(req) {
           channelId: 'default', 
         }),
       });
-      return NextResponse.json({ success: true, message: "Ping sent successfully" });
+
+      const expoData = await expoRes.json();
+
+      // Catch exact Expo error
+      if (expoData.data && expoData.data.status === 'error') {
+        return NextResponse.json({ success: false, error: `Expo Error: ${expoData.data.message}` });
+      }
+
+      return NextResponse.json({ success: true, message: "Ping sent successfully", receipt: expoData.data });
     } else {
-      return NextResponse.json({ success: false, error: "Target token not found in DB" });
+      return NextResponse.json({ success: false, error: `Token for ${targetUser} not found in Database` });
     }
 
   } catch (error) {
-    console.error("Push Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: "Catch Error: " + error.message });
   }
 }

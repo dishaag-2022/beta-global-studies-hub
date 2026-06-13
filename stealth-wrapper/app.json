@@ -2,6 +2,7 @@
   "expo": {
     "name": "Global Studies Archive Beta",
     "slug": "stealth-wrapper",
+    "owner": "chirag.mehtaaa",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -17,7 +18,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#ffffff",
-        "foregroundImage": "./assets/images/icon.png" 
+        "foregroundImage": "./assets/images/icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.globalstudies.stealth",
@@ -33,7 +34,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
@@ -43,22 +43,11 @@
             "imageWidth": 76
           }
         }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera."
-        }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    },
     "extra": {
-      "router": {},
       "eas": {
-        "projectId": "ff492ade-996c-4402-840b-c1fe3021bf91"
+        "projectId": "5d96d1da-897e-4961-97e0-f98a660bd26a"
       }
     }
   }

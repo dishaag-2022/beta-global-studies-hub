@@ -17,24 +17,28 @@ export default function CallOverlay({
 }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const remoteAudioRef = useRef(null); // 🔥 NEW: Dedicated audio ref for mobile routing
 
-  // ---> UPDATE: Safely attach local stream <---
+  // Safely attach local stream
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
     }
   }, [localStream]);
 
-  // ---> UPDATE: Safely attach remote stream and FORCE PLAY <---
+  // 🔥 UPDATE: Smart media routing (Audio vs Video)
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      // Force the WebView to play the media to bypass mobile blocks
-      remoteVideoRef.current.play().catch((err) => {
-        console.warn("Mobile autoplay restriction blocked playback:", err);
-      });
+    if (remoteStream) {
+      if (isVideoCall && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.play().catch((err) => console.warn("Video play blocked:", err));
+      } else if (!isVideoCall && remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        // Audio tag force playback
+        remoteAudioRef.current.play().catch((err) => console.warn("Audio play blocked:", err));
+      }
     }
-  }, [remoteStream]);
+  }, [remoteStream, isVideoCall]);
 
   if (callState === "IDLE") return null;
 
@@ -64,13 +68,20 @@ export default function CallOverlay({
           
           <div className="w-full h-[70vh] bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl relative border border-[#27272a] flex items-center justify-center">
             
-            {/* ---> FIX: THIS TAG MUST ALWAYS EXIST TO PLAY AUDIO/VIDEO <--- */}
-            <video 
-              ref={remoteVideoRef} 
-              autoPlay 
-              playsInline 
-              className={`w-full h-full object-cover absolute inset-0 z-10 transition-opacity duration-300 ${(!isVideoCall || !remoteStream) ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} 
-            />
+            {/* 🔥 NEW: Dedicated Audio Tag for Voice Calls */}
+            {!isVideoCall && (
+               <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+            )}
+
+            {/* VIDEO TAG (Only rendered if it's a video call) */}
+            {isVideoCall && (
+              <video 
+                ref={remoteVideoRef} 
+                autoPlay 
+                playsInline 
+                className="w-full h-full object-cover absolute inset-0 z-10" 
+              />
+            )}
 
             {/* WAITING UI */}
             {!remoteStream && (
@@ -83,13 +94,13 @@ export default function CallOverlay({
               </div>
             )}
 
-            {/* AUDIO CALL UI (Shows Avatar if it is a normal call and connected) */}
+            {/* AUDIO CALL UI */}
             {(!isVideoCall && remoteStream) && (
               <div className="flex flex-col items-center gap-4 relative z-20">
-                <div className="w-32 h-32 bg-zinc-800 rounded-full flex items-center justify-center border-4 border-emerald-500/20 shadow-emerald-500/10 shadow-2xl">
+                <div className="w-32 h-32 bg-zinc-800 rounded-full flex items-center justify-center border-4 border-emerald-500/20 shadow-emerald-500/10 shadow-2xl animate-[pulse_3s_ease-in-out_infinite]">
                   <User size={64} className="text-emerald-500" />
                 </div>
-                <span className="text-emerald-500 font-medium tracking-widest uppercase text-sm animate-pulse">Secure Voice Link Active</span>
+                <span className="text-emerald-500 font-medium tracking-widest uppercase text-sm">Secure Voice Link Active</span>
               </div>
             )}
             
