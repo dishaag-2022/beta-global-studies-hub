@@ -17,10 +17,8 @@ export default function MessageInput({
   // GIPHY API FETCH LOGIC
   const fetchGifs = async (query) => {
     setLoadingGifs(true);
-    // Ye line ab teri .env se key uthayegi, aur agar .env fail hua toh fallback me teri direct key chalegi
-    const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY || "Q5O7c5lqldY6RxR7KjUDnVP1Uk1vfSWc"; 
-    
-    // Giphy 'stickers' endpoint gives transparent background memes
+const API_KEY = process.env.NEXT_PUBLIC_GIPHY_API_KEY;
+
     const endpoint = query.trim()
       ? `https://api.giphy.com/v1/stickers/search?api_key=${API_KEY}&q=${encodeURIComponent(query)}&limit=30`
       : `https://api.giphy.com/v1/stickers/trending?api_key=${API_KEY}&limit=30`;
