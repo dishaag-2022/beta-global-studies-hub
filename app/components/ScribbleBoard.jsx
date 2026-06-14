@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
-import { X, Palette, Mic, MicOff } from "lucide-react";
+import { X, Palette, Mic, MicOff, Phone, PhoneOff } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function ScribbleBoard({
   setAppState, studentId, targetNode, isPeerActive, callState, startCall, toggleMic, localStream, isMicMuted,
-  sendDrawEvent, sendClearEvent // 🔥 Naye Props aaye hain Pusher ke liye
+  sendDrawEvent, sendClearEvent, answerCall, endCall 
 }) {
   const [scribbleColor, setScribbleColor] = useState("#000000");
   const canvasRef = useRef(null);
@@ -14,7 +14,6 @@ export default function ScribbleBoard({
   const lastSentPosRef = useRef({ x: 0, y: 0 });
   const lastSendTimeRef = useRef(0);
 
-  // Canvas Size Setup
   useEffect(() => {
     if (canvasRef.current) {
       const canvas = canvasRef.current;
@@ -25,7 +24,6 @@ export default function ScribbleBoard({
     }
   }, []);
 
-  // 🔥 RECEIVE FROM PARTNER: Doosre user se drawing aane par
   useEffect(() => {
     const handlePeerDraw = (e) => {
       const { x0, y0, x1, y1, color } = e.detail;
@@ -54,10 +52,9 @@ export default function ScribbleBoard({
 
   const handleClear = () => {
     clearCanvasLocal();
-    if (sendClearEvent) sendClearEvent(); // Partner ki screen bhi clear karo
+    if (sendClearEvent) sendClearEvent(); 
   };
 
-  // 🔥 POINTER ACCURACY FIX: CSS vs Internal scaling ko handle karta hai
   const getNormalizedPos = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -94,10 +91,8 @@ export default function ScribbleBoard({
     
     const currentPos = getNormalizedPos(e);
 
-    // 1. Apni screen par turant draw karo (Zero Lag)
     drawLine(lastPosRef.current.x, lastPosRef.current.y, currentPos.x, currentPos.y, scribbleColor);
     
-    // 2. Dusre ko bhejo (Throttled at ~25 FPS to prevent server crash)
     const now = Date.now();
     if (now - lastSendTimeRef.current > 40) { 
        if (sendDrawEvent) sendDrawEvent(lastSentPosRef.current.x, lastSentPosRef.current.y, currentPos.x, currentPos.y, scribbleColor);
@@ -110,6 +105,19 @@ export default function ScribbleBoard({
 
   const stopDrawing = () => {
     isDrawingRef.current = false;
+  };
+
+  // 🔥 1-CLICK FIX: Yeh call start karega aur auto-unmute kar dega tumhare liye
+  const handleMicClick = async () => {
+    if (callState === "IDLE") {
+       await startCall(false);
+       setTimeout(() => { if (toggleMic) toggleMic(); }, 800); // Wait for stream then unmute
+    } else if (callState === "RINGING" && answerCall) {
+       await answerCall();
+       setTimeout(() => { if (toggleMic) toggleMic(); }, 800);
+    } else {
+       toggleMic();
+    }
   };
 
   return (
@@ -129,9 +137,23 @@ export default function ScribbleBoard({
           <div className="flex flex-col"><span className="text-white text-[15px] font-semibold tracking-wide">{studentId || "Me"}</span><span className="text-green-400 text-[10px] uppercase tracking-wider font-bold">(You)</span></div>
         </div>
 
-        <button onClick={() => callState === "IDLE" ? startCall(false) : toggleMic()} className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border-2 ${(localStream && !isMicMuted) ? "bg-green-500/20 border-green-500/50 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
-            {localStream && !isMicMuted ? <Mic size={22} /> : <MicOff size={22} />}
-        </button>
+        {/* 🔥 NEW CALL CONTROLS */}
+        <div className="flex items-center gap-2">
+            <button onClick={handleMicClick} className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border-2 ${
+                callState === "RINGING" ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400 animate-pulse" :
+                (localStream && !isMicMuted) ? "bg-green-500/20 border-green-500/50 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"
+            }`}>
+                {callState === "RINGING" ? <Phone size={22} className="animate-bounce" /> :
+                (localStream && !isMicMuted) ? <Mic size={22} /> : <MicOff size={22} />}
+            </button>
+            
+            {/* End Call Button */}
+            {callState !== "IDLE" && endCall && (
+                <button onClick={endCall} className="w-10 h-10 rounded-full bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-500 hover:bg-rose-500/40 transition-all active:scale-90">
+                   <PhoneOff size={18} />
+                </button>
+            )}
+        </div>
 
         <div className="flex items-center gap-3 text-right">
           <div className="flex flex-col"><span className="text-white text-[15px] font-semibold tracking-wide">{targetNode || "Partner"}</span><span className="text-slate-400 text-[10px] uppercase tracking-wider">{isPeerActive ? "Online" : "Away"}</span></div>

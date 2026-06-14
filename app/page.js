@@ -983,7 +983,7 @@ export default function Home() {
           </motion.div>
         )}
 
-        {appState === "SCRIBBLE_MODE" && (
+       {appState === "SCRIBBLE_MODE" && (
           <ScribbleBoard
             setAppState={setAppState}
             studentId={studentId}
@@ -996,6 +996,8 @@ export default function Home() {
             isMicMuted={isMicMuted}
             sendDrawEvent={sendDrawEvent}
             sendClearEvent={sendClearEvent}
+            answerCall={answerCall}   
+            endCall={endCall}         
           />
         )}
 
