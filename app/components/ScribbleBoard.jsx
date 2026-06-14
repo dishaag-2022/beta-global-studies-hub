@@ -129,7 +129,6 @@ export default function ScribbleBoard({
           <div className="flex flex-col"><span className="text-white text-[15px] font-semibold tracking-wide">{studentId || "Me"}</span><span className="text-green-400 text-[10px] uppercase tracking-wider font-bold">(You)</span></div>
         </div>
 
-        {/* 🔥 FIX: Agar pehle se call par ho toh toggle karo, warna Naya Audio Call (isVideo=false) laga do */}
         <button onClick={() => callState === "IDLE" ? startCall(false) : toggleMic()} className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg border-2 ${(localStream && !isMicMuted) ? "bg-green-500/20 border-green-500/50 text-green-400" : "bg-red-500/10 border-red-500/30 text-red-400"}`}>
             {localStream && !isMicMuted ? <Mic size={22} /> : <MicOff size={22} />}
         </button>

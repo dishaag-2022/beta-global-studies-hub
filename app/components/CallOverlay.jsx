@@ -55,7 +55,7 @@ export default function CallOverlay({
         )}
 
         {/* =========================================
-            ON CALL STATE (Live Video/Audio & Controls)
+            ON CALL STATE (Live Video & Controls)
         ========================================= */}
         {callState === "ON_CALL" && (
           <div className="relative w-full h-full bg-black overflow-hidden pointer-events-auto">
@@ -75,7 +75,7 @@ export default function CallOverlay({
               </div>
             )}
 
-            {/* AUDIO CALL / OUTGOING RINGING VIEW */}
+            {/* OUTGOING CALL RINGING / AUDIO CONNECTED STATE */}
             {(!remoteStream || !isVideoCall) && !isCallMinimized && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#09090b] z-10">
                 <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 border ${remoteStream ? 'bg-emerald-500/20 border-emerald-500/30 shadow-[0_0_30px_rgba(16,185,129,0.2)]' : 'bg-gradient-to-tr from-indigo-500/20 to-blue-500/20 animate-pulse border-indigo-500/30 shadow-[0_0_30px_rgba(99,102,241,0.2)]'}`}>
@@ -84,25 +84,10 @@ export default function CallOverlay({
                 <h2 className="text-2xl font-bold text-white mb-2">{remoteStream ? "Call Connected" : "Calling..."}</h2>
                 <p className="text-slate-400 text-sm">{remoteStream ? "Audio is active" : "Waiting for partner to pick up"}</p>
                 
-                {/* 🔥 BUG FIX: Separate Audio tags to ensure sound flows even if video is hidden */}
-                {remoteStream && !isVideoCall && (
-                  <audio ref={(node) => { if (node && node.srcObject !== remoteStream) node.srcObject = remoteStream; }} autoPlay playsInline />
-                )}
-                {localStream && !isVideoCall && (
-                  <audio ref={(node) => { if (node && node.srcObject !== localStream) node.srcObject = localStream; }} autoPlay playsInline muted />
-                )}
-
                 {/* SHOW REMOTE MIC OFF STATUS IN AUDIO CALL */}
                 {remoteStream && isRemoteMicMuted && (
                    <div className="mt-6 flex items-center gap-2 bg-rose-500/20 text-rose-400 px-4 py-2 rounded-full text-sm font-medium border border-rose-500/30 shadow-lg">
                      <MicOff size={16} /> Partner muted mic
-                   </div>
-                )}
-                
-                {/* SHOW LOCAL MIC OFF STATUS IN AUDIO CALL */}
-                {localStream && isMicMuted && (
-                   <div className="mt-4 flex items-center gap-2 bg-rose-500/80 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg">
-                     <MicOff size={16} /> You are muted
                    </div>
                 )}
               </div>
@@ -112,8 +97,8 @@ export default function CallOverlay({
             <div className={`absolute inset-0 w-full h-full bg-[#09090b] flex items-center justify-center ${(!isVideoCall || !remoteStream) ? 'hidden' : ''}`}>
               <video
                 ref={(node) => { if (node && remoteStream && node.srcObject !== remoteStream) node.srcObject = remoteStream; }}
-                autoPlay playsInline
-                style={{ filter: SNAP_FILTERS[remoteFilter]?.filter || 'none' }} // Partner's Filter
+                autoPlay playsInline muted
+                style={{ filter: SNAP_FILTERS[remoteFilter]?.filter || 'none' }}
                 className={`w-full h-full object-cover transition-opacity duration-300 ${isRemoteVideoMuted ? 'opacity-0' : 'opacity-100'}`}
               />
               
@@ -146,20 +131,18 @@ export default function CallOverlay({
                 ref={(node) => { if (node && localStream && node.srcObject !== localStream) node.srcObject = localStream; }}
                 autoPlay playsInline muted 
                 style={{
-                  filter: SNAP_FILTERS[localFilter]?.filter || 'none', // Your Filter
-                  transform: isMirrored ? 'scaleX(-1)' : 'none' // Mirror Fix
+                  filter: SNAP_FILTERS[localFilter]?.filter || 'none',
+                  transform: isMirrored ? 'scaleX(-1)' : 'none'
                 }}
                 className={`w-full h-full object-cover transition-opacity duration-300 ${isVideoMuted ? 'opacity-0' : 'opacity-100'}`} 
               />
               
-              {/* IF LOCAL VIDEO IS OFF */}
               {isVideoMuted && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#27272a] z-10">
                   <VideoOff size={isCallMinimized ? 12 : 28} className="text-slate-400" />
                 </div>
               )}
 
-              {/* LOCAL MIC MUTE INDICATOR FOR YOUR SMALL PHOTO */}
               {isMicMuted && (
                  <div className="absolute bottom-2 right-2 bg-rose-500/90 backdrop-blur-md p-1.5 rounded-full text-white shadow-lg z-20">
                     <MicOff size={14} />

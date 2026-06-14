@@ -179,10 +179,12 @@ export default function Home() {
     if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
   };
 
-  // 🔥 THE FIX: PeerJS Initialization. Only runs ONCE when user logs in. 
-  // It no longer destroys and restarts when you switch from Chat to Scribble!
+  // 🔥 PEER RECONNECT FIX
   useEffect(() => {
-    if (currentUser && !peerInstance.current) {
+    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") && currentUser) {
+      
+      if (peerInstance.current && !peerInstance.current.destroyed) return;
+
       import('peerjs').then(({ default: Peer }) => {
         const peer = new Peer(studentId.trim(), {
           config: {
@@ -198,16 +200,24 @@ export default function Home() {
           setIsVideoCall(call.metadata?.isVideo || false);
           setCallState("RINGING");
         });
-        peer.on('error', (err) => console.error("PeerJS Error:", err));
         peerInstance.current = peer;
       });
     }
-  }, [currentUser, studentId]);
+  }, [appState, currentUser, studentId]);
 
+  // 🔥 START CALL FIX
   const startCall = async (isVideo) => {
     try {
-      if (!peerInstance.current) throw new Error("Connection not ready. Please wait a moment.");
+      if (!peerInstance.current) throw new Error("Network not ready yet. Please wait a second.");
       
+      if (peerInstance.current.destroyed) {
+        throw new Error("Connection lost. Please Log out and Log back in.");
+      }
+
+      if (peerInstance.current.disconnected) {
+        peerInstance.current.reconnect();
+      }
+
       const isVideoReq = isVideo === true;
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
 
@@ -215,24 +225,24 @@ export default function Home() {
         stream.getAudioTracks()[0].enabled = false;
       }
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
-      setLocalFilter(0); setRemoteFilter(0); 
-      
-      // 🔥 FIX: Auto-minimize the call overlay if we are outside the Chat screen (e.g., Scribble Board)
-      setIsCallMinimized(appState !== "CHAT");
+      setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
 
       setLocalStream(stream);
       setIsVideoCall(isVideoReq);
       setCallState("ON_CALL");
 
       const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo: isVideoReq } });
-      if (!call) throw new Error("Could not connect to partner. They might be offline.");
       
+      if (!call) throw new Error("Partner is offline or network is busy.");
       currentCall.current = call;
 
       call.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       call.on('close', () => endCall());
+      call.on('error', () => endCall()); 
     } catch (err) {
-      alert(`❌ Call Error: ${err.message || err.name}`);
+      const isDeviceErr = err.name === "NotAllowedError" || err.name === "NotFoundError";
+      const prefix = isDeviceErr ? "Camera/Mic Error:" : "Connection Status:";
+      alert(`❌ ${prefix} ${err.message}`);
       setCallState("IDLE");
     }
   };
@@ -245,21 +255,23 @@ export default function Home() {
         stream.getAudioTracks()[0].enabled = false;
       }
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
-      setLocalFilter(0); setRemoteFilter(0); 
-      
-      // 🔥 FIX: Auto-minimize the call overlay if we are outside the Chat screen
-      setIsCallMinimized(appState !== "CHAT");
+      setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
 
       setLocalStream(stream);
 
+      if (!incomingCall) throw new Error("Incoming call dropped or partner disconnected.");
+      
       incomingCall.answer(stream);
       currentCall.current = incomingCall;
       setCallState("ON_CALL");
 
       incomingCall.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       incomingCall.on('close', () => endCall());
+      incomingCall.on('error', () => endCall()); 
     } catch (err) {
-      alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}`);
+      const isDeviceErr = err.name === "NotAllowedError" || err.name === "NotFoundError";
+      const prefix = isDeviceErr ? "Camera/Mic Error:" : "Connection Status:";
+      alert(`❌ ${prefix} ${err.message}`);
       rejectCall();
     }
   };
@@ -761,297 +773,305 @@ export default function Home() {
   const bgPatternLove = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23e11d48' fill-opacity='0.1' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='20'%3E%E2%9D%A4%EF%B8%8F%3C/text%3E%3Ctext x='80' y='80' font-size='16'%3E%F0%9F%92%96%3C/text%3E%3Ctext x='140' y='40' font-size='20'%3E%F0%9F%A5%80%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%F0%9F%92%8B%3C/text%3E%3Ctext x='110' y='150' font-size='20'%3E%E2%9D%A4%EF%B8%8F%3C/text%3E%3Ctext x='160' y='110' font-size='16'%3E%F0%9F%8C%B9%3C/text%3E%3C/g%3E%3C/svg%3E")`;
 
   return (
-    <AnimatePresence mode="wait">
+    <>
+      <audio
+        ref={(node) => {
+          if (node && remoteStream && node.srcObject !== remoteStream) {
+            node.srcObject = remoteStream;
+          }
+        }}
+        autoPlay
+        playsInline
+        className="absolute w-0 h-0 opacity-0 pointer-events-none"
+      />
 
-      {appState === "DECOY" && (
-        <motion.div key="decoy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="absolute inset-0 w-full h-full bg-[#fafbfc] overflow-y-auto">
-          <ModernDecoy onTrigger={() => setAppState("PORTAL_LOGIN")} />
-        </motion.div>
-      )}
+      <AnimatePresence mode="wait">
 
-      {appState === "PORTAL_LOGIN" && (
-        <motion.div key="login" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} transition={{ duration: 0.3 }} className={`absolute inset-0 w-full h-full flex items-center justify-center p-4 font-sans transition-colors duration-300 z-50 ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}>
-          <div className={`p-8 rounded-3xl w-full max-w-sm text-center shadow-xl transition-colors duration-300 ${isDarkMode ? "bg-[#18181b] border border-[#27272a] shadow-black/50" : "bg-white border border-slate-100 shadow-blue-900/5"}`}>
-            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border ${isDarkMode ? "bg-blue-900/20 border-blue-900/30" : "bg-blue-50 border-blue-100"}`}><Lock size={28} className={isDarkMode ? "text-blue-400" : "text-blue-600"} /></div>
-            <h2 className={`mb-1 text-2xl font-bold ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>Student Gateway</h2>
-            <p className={`text-sm mb-8 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>Access restricted academic modules</p>
-            <form onSubmit={handleLogin} className="space-y-4 text-left">
-              <div><input type="text" autoComplete="off" placeholder="University ID" className={`w-full p-4 rounded-xl text-[16px] focus:border-blue-500 outline-none transition border ${isDarkMode ? "bg-[#09090b] border-[#27272a] text-slate-200 placeholder-slate-500" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"}`} onChange={(e) => setStudentId(e.target.value)} /></div>
-              <div><input type="password" autoComplete="new-password" placeholder="Access PIN" className={`w-full p-4 rounded-xl text-[16px] focus:border-blue-500 outline-none transition border ${isDarkMode ? "bg-[#09090b] border-[#27272a] text-slate-200 placeholder-slate-500" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"}`} onChange={(e) => setPassword(e.target.value)} /></div>
-              {error && <p className="text-rose-500 text-xs font-medium bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">{error}</p>}
-              <button type="submit" disabled={isLoggingIn} className={`w-full text-white font-semibold py-4 rounded-xl text-sm mt-2 transition-colors shadow-lg ${isLoggingIn ? "bg-blue-500/50 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20"}`}>{isLoggingIn ? "Authenticating..." : "Authenticate"}</button>
-            </form>
-          </div>
-        </motion.div>
-      )}
-
-      {appState === "MODE_SELECTION" && (
-        <motion.div
-          key="mode-select"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 overflow-y-auto custom-scrollbar ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
-        >
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[100px] rounded-full" />
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full" />
-          </div>
-
-          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-8 mt-12 text-center z-10">
-            <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg border ${isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
-               <Aperture className={isDarkMode ? "text-blue-400" : "text-blue-600"} size={32} />
-            </div>
-            <h2 className="text-3xl font-bold tracking-tight">Select Interface</h2>
-            <p className="text-slate-500 mt-2 text-sm">Choose your communication module</p>
+        {appState === "DECOY" && (
+          <motion.div key="decoy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="absolute inset-0 w-full h-full bg-[#fafbfc] overflow-y-auto">
+            <ModernDecoy onTrigger={() => setAppState("PORTAL_LOGIN")} />
           </motion.div>
+        )}
 
-          <div className="w-full max-w-sm space-y-4 z-10 mb-12">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setAppState("CHAT")}
-              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-blue-500/50" : "bg-white border-slate-200 hover:border-blue-500/50"}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
-                  <MessageSquare className="text-blue-500" size={24} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold text-lg">Secure Chat</h3>
-                  <p className="text-slate-500 text-xs">Encrypted text & media relay</p>
-                </div>
-              </div>
-              <ChevronRight className="text-slate-500 group-hover:text-blue-500 transition-colors" />
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setAppState("SNAP_MODE")}
-              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-purple-500/50" : "bg-white border-slate-200 hover:border-purple-500/50"}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
-                  <Camera className="text-purple-500" size={24} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold text-lg">Snap Module</h3>
-                  <p className="text-slate-500 text-xs">Volatile visual transmission</p>
-                </div>
-              </div>
-              <ChevronRight className="text-slate-500 group-hover:text-purple-500 transition-colors" />
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setAppState("SCRIBBLE_MODE")}
-              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-green-500/50" : "bg-white border-slate-200 hover:border-green-500/50"}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center group-hover:bg-green-500/20 transition-colors">
-                  <Palette className="text-green-500" size={24} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold text-lg">Scribble Game</h3>
-                  <p className="text-slate-500 text-xs">Live drawing & guessing</p>
-                </div>
-              </div>
-              <ChevronRight className="text-slate-500 group-hover:text-green-500 transition-colors" />
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setAppState("CUSTOM_PING")}
-              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-amber-500/50" : "bg-white border-slate-200 hover:border-amber-500/50"}`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
-                  <BellRing className="text-amber-500" size={24} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-semibold text-lg">Custom Alert</h3>
-                  <p className="text-slate-500 text-xs">Send targeted notifications</p>
-                </div>
-              </div>
-              <ChevronRight className="text-slate-500 group-hover:text-amber-500 transition-colors" />
-            </motion.button>
-          </div>
-        </motion.div>
-      )}
-
-      {appState === "CUSTOM_PING" && (
-        <CustomPing
-          setAppState={setAppState}
-          studentId={studentId}
-          targetNode={targetNode}
-          activeChannel={activeChannel}
-          isDarkMode={isDarkMode}
-          isLoveMode={isLoveMode}
-        />
-      )}
-
-      {appState === "SNAP_MODE" && (
-        <motion.div
-          key="snap-mode"
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 50 }}
-          className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none"
-        >
-          <video
-            ref={snapVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300"
-            style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }}
-          />
-
-          <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent z-20">
-             <button onClick={() => setAppState("CHAT")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform">
-                <X size={24} />
-             </button>
-             <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">
-                {SNAP_FILTERS[snapFilterIndex].name}
-             </div>
-             <div className="w-10"></div>
-          </div>
-
-          <div className="absolute inset-0 z-10 flex">
-            <div
-              className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-              onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}
-            >
-               <ChevronLeft className="text-white drop-shadow-lg" size={48} />
+        {appState === "PORTAL_LOGIN" && (
+          <motion.div key="login" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.05 }} transition={{ duration: 0.3 }} className={`absolute inset-0 w-full h-full flex items-center justify-center p-4 font-sans transition-colors duration-300 z-50 ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}>
+            <div className={`p-8 rounded-3xl w-full max-w-sm text-center shadow-xl transition-colors duration-300 ${isDarkMode ? "bg-[#18181b] border border-[#27272a] shadow-black/50" : "bg-white border border-slate-100 shadow-blue-900/5"}`}>
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 border ${isDarkMode ? "bg-blue-900/20 border-blue-900/30" : "bg-blue-50 border-blue-100"}`}><Lock size={28} className={isDarkMode ? "text-blue-400" : "text-blue-600"} /></div>
+              <h2 className={`mb-1 text-2xl font-bold ${isDarkMode ? "text-slate-100" : "text-slate-900"}`}>Student Gateway</h2>
+              <p className={`text-sm mb-8 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>Access restricted academic modules</p>
+              <form onSubmit={handleLogin} className="space-y-4 text-left">
+                <div><input type="text" autoComplete="off" placeholder="University ID" className={`w-full p-4 rounded-xl text-[16px] focus:border-blue-500 outline-none transition border ${isDarkMode ? "bg-[#09090b] border-[#27272a] text-slate-200 placeholder-slate-500" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"}`} onChange={(e) => setStudentId(e.target.value)} /></div>
+                <div><input type="password" autoComplete="new-password" placeholder="Access PIN" className={`w-full p-4 rounded-xl text-[16px] focus:border-blue-500 outline-none transition border ${isDarkMode ? "bg-[#09090b] border-[#27272a] text-slate-200 placeholder-slate-500" : "bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400"}`} onChange={(e) => setPassword(e.target.value)} /></div>
+                {error && <p className="text-rose-500 text-xs font-medium bg-rose-500/10 p-3 rounded-lg border border-rose-500/20">{error}</p>}
+                <button type="submit" disabled={isLoggingIn} className={`w-full text-white font-semibold py-4 rounded-xl text-sm mt-2 transition-colors shadow-lg ${isLoggingIn ? "bg-blue-500/50 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-500 shadow-blue-600/20"}`}>{isLoggingIn ? "Authenticating..." : "Authenticate"}</button>
+              </form>
             </div>
-            <div
-              className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-              onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}
-            >
-               <ChevronRight className="text-white drop-shadow-lg" size={48} />
+          </motion.div>
+        )}
+
+        {appState === "MODE_SELECTION" && (
+          <motion.div
+            key="mode-select"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 overflow-y-auto custom-scrollbar ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
+          >
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[100px] rounded-full" />
+              <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full" />
             </div>
-          </div>
 
-          <div className="absolute bottom-0 inset-x-0 pb-12 pt-20 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
-             <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md pointer-events-none">
-                Tap for Photo • Hold for Video
-             </div>
+            <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-8 mt-12 text-center z-10">
+              <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg border ${isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
+                 <Aperture className={isDarkMode ? "text-blue-400" : "text-blue-600"} size={32} />
+              </div>
+              <h2 className="text-3xl font-bold tracking-tight">Select Interface</h2>
+              <p className="text-slate-500 mt-2 text-sm">Choose your communication module</p>
+            </motion.div>
 
-             <button
-                onPointerDown={handlePointerDown}
-                onPointerUp={handlePointerUp}
-                onPointerLeave={handlePointerUp}
-                onContextMenu={(e) => e.preventDefault()}
-                style={{ touchAction: 'none' }}
-                disabled={isSnapping && !isRecording}
-                className={`relative w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-300 pointer-events-auto select-none ${isRecording ? 'border-rose-500 scale-[1.15]' : 'border-white/80 active:scale-90'}`}
-             >
-                {isSnapping && !isRecording ? (
-                  <Loader2 className="text-white animate-spin" size={32} />
-                ) : (
-                  <div className={`transition-all duration-300 ${isRecording ? 'w-8 h-8 bg-rose-500 rounded-md' : 'w-16 h-16 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,0.5)]'}`}></div>
-                )}
-             </button>
-          </div>
-        </motion.div>
-      )}
+            <div className="w-full max-w-sm space-y-4 z-10 mb-12">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setAppState("CHAT")}
+                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-blue-500/50" : "bg-white border-slate-200 hover:border-blue-500/50"}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
+                    <MessageSquare className="text-blue-500" size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-semibold text-lg">Secure Chat</h3>
+                    <p className="text-slate-500 text-xs">Encrypted text & media relay</p>
+                  </div>
+                </div>
+                <ChevronRight className="text-slate-500 group-hover:text-blue-500 transition-colors" />
+              </motion.button>
 
-      {appState === "SCRIBBLE_MODE" && (
-        <ScribbleBoard
-          setAppState={setAppState}
-          studentId={studentId}
-          targetNode={targetNode}
-          isPeerActive={isPeerActive}
-          callState={callState}
-          startCall={startCall}
-          toggleMic={toggleMic}
-          localStream={localStream}
-          isMicMuted={isMicMuted}
-          sendDrawEvent={sendDrawEvent}
-          sendClearEvent={sendClearEvent}
-        />
-      )}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setAppState("SNAP_MODE")}
+                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-purple-500/50" : "bg-white border-slate-200 hover:border-purple-500/50"}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
+                    <Camera className="text-purple-500" size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-semibold text-lg">Snap Module</h3>
+                    <p className="text-slate-500 text-xs">Volatile visual transmission</p>
+                  </div>
+                </div>
+                <ChevronRight className="text-slate-500 group-hover:text-purple-500 transition-colors" />
+              </motion.button>
 
-      {appState === "CHAT" && (
-        <motion.div
-          ref={chatWrapperRef}
-          key="chat"
-          initial={{ opacity: 0, x: 50 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -50 }}
-          transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
-          style={{
-            top: 0,
-            height: '100%',
-            backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'),
-            backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none'
-          }}
-        >
-          <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
-          <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setAppState("SCRIBBLE_MODE")}
+                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-green-500/50" : "bg-white border-slate-200 hover:border-green-500/50"}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center group-hover:bg-green-500/20 transition-colors">
+                    <Palette className="text-green-500" size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-semibold text-lg">Scribble Game</h3>
+                    <p className="text-slate-500 text-xs">Live drawing & guessing</p>
+                  </div>
+                </div>
+                <ChevronRight className="text-slate-500 group-hover:text-green-500 transition-colors" />
+              </motion.button>
 
-          <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} />
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setAppState("CUSTOM_PING")}
+                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-amber-500/50" : "bg-white border-slate-200 hover:border-amber-500/50"}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+                    <BellRing className="text-amber-500" size={24} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-semibold text-lg">Custom Alert</h3>
+                    <p className="text-slate-500 text-xs">Send targeted notifications</p>
+                  </div>
+                </div>
+                <ChevronRight className="text-slate-500 group-hover:text-amber-500 transition-colors" />
+              </motion.button>
+            </div>
+          </motion.div>
+        )}
 
-          <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} />
-
-          <MessageInput
-            inputRef={inputRef}
-            input={input}
-            setInput={setInput}
-            handleTextSubmit={handleTextSubmit}
-            handleInputChange={handleInputChange}
-            isUploading={isUploading}
-            showEmojis={showEmojis}
-            setShowEmojis={setShowEmojis}
-            cameraInputRef={cameraInputRef}
-            galleryInputRef={galleryInputRef}
+        {appState === "CUSTOM_PING" && (
+          <CustomPing
+            setAppState={setAppState}
+            studentId={studentId}
+            targetNode={targetNode}
+            activeChannel={activeChannel}
             isDarkMode={isDarkMode}
             isLoveMode={isLoveMode}
-            ignorePanicRef={ignorePanicRef}
-            scrollToBottom={scrollToBottom}
-            dispatchMessage={dispatchMessage}
+          />
+        )}
+
+        {appState === "SNAP_MODE" && (
+          <motion.div
+            key="snap-mode"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none"
+          >
+            <video
+              ref={snapVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300"
+              style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }}
+            />
+
+            <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent z-20">
+               <button onClick={() => setAppState("CHAT")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform">
+                  <X size={24} />
+               </button>
+               <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">
+                  {SNAP_FILTERS[snapFilterIndex].name}
+               </div>
+               <div className="w-10"></div>
+            </div>
+
+            <div className="absolute inset-0 z-10 flex">
+              <div
+                className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}
+              >
+                 <ChevronLeft className="text-white drop-shadow-lg" size={48} />
+              </div>
+              <div
+                className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
+                onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}
+              >
+                 <ChevronRight className="text-white drop-shadow-lg" size={48} />
+              </div>
+            </div>
+
+            <div className="absolute bottom-0 inset-x-0 pb-12 pt-20 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
+               <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md pointer-events-none">
+                  Tap for Photo • Hold for Video
+               </div>
+
+               <button
+                  onPointerDown={handlePointerDown}
+                  onPointerUp={handlePointerUp}
+                  onPointerLeave={handlePointerUp}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{ touchAction: 'none' }}
+                  disabled={isSnapping && !isRecording}
+                  className={`relative w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-300 pointer-events-auto select-none ${isRecording ? 'border-rose-500 scale-[1.15]' : 'border-white/80 active:scale-90'}`}
+               >
+                  {isSnapping && !isRecording ? (
+                    <Loader2 className="text-white animate-spin" size={32} />
+                  ) : (
+                    <div className={`transition-all duration-300 ${isRecording ? 'w-8 h-8 bg-rose-500 rounded-md' : 'w-16 h-16 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,0.5)]'}`}></div>
+                  )}
+               </button>
+            </div>
+          </motion.div>
+        )}
+
+        {appState === "SCRIBBLE_MODE" && (
+          <ScribbleBoard
             setAppState={setAppState}
-            replyTo={replyTo}
-            setReplyTo={setReplyTo}
-          />
-
-        </motion.div>
-      )}
-
-      {/* 🔥 THE MAGIC FIX: Moved CallOverlay outside CHAT block. 
-          Ab ye Scribble Board, Menu, aur Snap par bhi kaam karega! */}
-      {currentUser && callState !== "IDLE" && (
-         <CallOverlay
+            studentId={studentId}
+            targetNode={targetNode}
+            isPeerActive={isPeerActive}
             callState={callState}
-            isVideoCall={isVideoCall}
-            localStream={localStream}
-            remoteStream={remoteStream}
-            answerCall={answerCall}
-            rejectCall={rejectCall}
-            endCall={endCall}
-            isMicMuted={isMicMuted}
-            isVideoMuted={isVideoMuted}
+            startCall={startCall}
             toggleMic={toggleMic}
-            toggleVideo={toggleVideo}
-            isRemoteVideoMuted={isRemoteVideoMuted}
-            isRemoteMicMuted={isRemoteMicMuted} 
-            isCallMinimized={isCallMinimized}
-            setIsCallMinimized={setIsCallMinimized}
-            SNAP_FILTERS={SNAP_FILTERS}
-            localFilter={localFilter}
-            setLocalFilter={(newFilterIndex) => {
-               setLocalFilter(newFilterIndex);
-               const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString();
-               fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
-            }}
-            remoteFilter={remoteFilter}
+            localStream={localStream}
+            isMicMuted={isMicMuted}
+            sendDrawEvent={sendDrawEvent}
+            sendClearEvent={sendClearEvent}
           />
-      )}
+        )}
 
-    </AnimatePresence>
+        {appState === "CHAT" && (
+          <motion.div
+            ref={chatWrapperRef}
+            key="chat"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
+            style={{
+              top: 0,
+              height: '100%',
+              backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'),
+              backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none'
+            }}
+          >
+            <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
+            <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
+
+            <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} />
+
+            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} />
+
+            <MessageInput
+              inputRef={inputRef}
+              input={input}
+              setInput={setInput}
+              handleTextSubmit={handleTextSubmit}
+              handleInputChange={handleInputChange}
+              isUploading={isUploading}
+              showEmojis={showEmojis}
+              setShowEmojis={setShowEmojis}
+              cameraInputRef={cameraInputRef}
+              galleryInputRef={galleryInputRef}
+              isDarkMode={isDarkMode}
+              isLoveMode={isLoveMode}
+              ignorePanicRef={ignorePanicRef}
+              scrollToBottom={scrollToBottom}
+              dispatchMessage={dispatchMessage}
+              setAppState={setAppState}
+              replyTo={replyTo}
+              setReplyTo={setReplyTo}
+            />
+
+            <CallOverlay
+              callState={callState}
+              isVideoCall={isVideoCall}
+              localStream={localStream}
+              remoteStream={remoteStream}
+              answerCall={answerCall}
+              rejectCall={rejectCall}
+              endCall={endCall}
+              isMicMuted={isMicMuted}
+              isVideoMuted={isVideoMuted}
+              toggleMic={toggleMic}
+              toggleVideo={toggleVideo}
+              isRemoteVideoMuted={isRemoteVideoMuted}
+              isRemoteMicMuted={isRemoteMicMuted} 
+              isCallMinimized={isCallMinimized}
+              setIsCallMinimized={setIsCallMinimized}
+              SNAP_FILTERS={SNAP_FILTERS}
+              localFilter={localFilter}
+              setLocalFilter={(newFilterIndex) => {
+                 setLocalFilter(newFilterIndex);
+                 const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString();
+                 fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+              }}
+              remoteFilter={remoteFilter}
+            />
+          </motion.div>
+        )}
+
+      </AnimatePresence>
+    </>
   );
 }
