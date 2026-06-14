@@ -7,7 +7,7 @@ export default function MessageInput({
   inputRef, input, setInput, handleInputChange, isUploading,
   showEmojis, setShowEmojis, cameraInputRef, galleryInputRef, isDarkMode, 
   isLoveMode, ignorePanicRef, scrollToBottom, dispatchMessage, setAppState,
-  replyTo, setReplyTo // 🔥 NEW PROPS
+  replyTo, setReplyTo 
 }) {
   const [showStickers, setShowStickers] = useState(false);
   const [gifs, setGifs] = useState([]);
@@ -28,7 +28,6 @@ export default function MessageInput({
   const toggleEmojis = () => { setShowEmojis(!showEmojis); setShowStickers(false); };
   const toggleStickers = () => { setShowStickers(!showStickers); setShowEmojis(false); };
 
-  // 🔥 CUSTOM SUBMIT TO HANDLE REPLIES
   const onCustomSubmit = (e) => {
     if (e) e.preventDefault();
     if (!input.trim() && !isUploading) return;
@@ -40,6 +39,8 @@ export default function MessageInput({
     
     if (input.trim()) {
        dispatchMessage(finalMsg);
+       // 🔥 FIX 1: Message bhejte hi turant neeche scroll hoga
+       setTimeout(scrollToBottom, 50); 
     }
     
     setInput("");
@@ -50,10 +51,6 @@ export default function MessageInput({
 
   return (
     <div className="flex flex-col w-full z-20 relative">
-      
-      {/* ============================================================== */}
-      {/* 🔥 FIX: YAHAN SE EMOJI AUR STICKER POPUP GAYAB THA, ADDED BACK! */}
-      {/* ============================================================== */}
       
       {/* Emoji Picker Popup */}
       <AnimatePresence>
@@ -68,8 +65,6 @@ export default function MessageInput({
       <AnimatePresence>
         {showStickers && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className={`absolute bottom-[75px] left-2 sm:left-4 z-50 shadow-2xl rounded-3xl p-3 w-[300px] h-[360px] flex flex-col border ${isLoveMode ? "bg-[#2a0a12] border-rose-900/50" : isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
-            
-            {/* Search Bar */}
             <div className={`flex items-center px-3 py-2 mb-3 rounded-xl border ${isLoveMode ? "bg-[#1a050f] border-rose-900/80" : isDarkMode ? "bg-[#09090b] border-[#3f3f46]" : "bg-slate-50 border-slate-200"}`}>
               <Search size={16} className={isLoveMode ? "text-pink-500" : isDarkMode ? "text-slate-400" : "text-slate-500"} />
               <input 
@@ -77,8 +72,6 @@ export default function MessageInput({
                 className={`w-full ml-2 bg-transparent outline-none text-sm ${isLoveMode ? "text-rose-200 placeholder-rose-800" : isDarkMode ? "text-slate-200 placeholder-slate-500" : "text-slate-800 placeholder-slate-400"}`}
               />
             </div>
-
-            {/* GIF Grid */}
             <div className="flex-1 overflow-y-auto grid grid-cols-3 gap-2 scrollbar-hide pr-1">
               {loadingGifs ? (
                 <div className="col-span-3 flex items-center justify-center h-full text-sm font-medium animate-pulse text-rose-400">Loading Memes...</div>
@@ -92,26 +85,21 @@ export default function MessageInput({
                 <div className="col-span-3 flex items-center justify-center h-full text-sm opacity-50">No stickers found</div>
               )}
             </div>
-            
             <div className="text-[10px] text-center mt-2 opacity-50 font-bold tracking-widest uppercase">Powered by GIPHY</div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ============================================================== */}
-
-
-      {/* 🔥 REPLY BANNER (Shows up when you swipe right) */}
       <AnimatePresence>
         {replyTo && (
            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className={`mx-4 mb-2 p-3 rounded-xl flex justify-between items-center shadow-lg border-l-4 ${isLoveMode ? "bg-[#2a0a12] border-pink-500 text-rose-200" : isDarkMode ? "bg-[#18181b] border-blue-500 text-slate-300" : "bg-white border-blue-500 text-slate-700"}`}>
-             <div className="flex flex-col truncate pr-4">
+             <div className="flex flex-col pr-4 w-full min-w-0 overflow-hidden">
                 <span className={`text-xs font-bold flex items-center gap-1 ${isLoveMode ? "text-pink-400" : "text-blue-500"}`}><Reply size={12}/> Replying to</span>
-                <span className="text-sm truncate opacity-80 mt-0.5">
+                <span className="text-sm opacity-80 mt-0.5 line-clamp-2 text-ellipsis overflow-hidden whitespace-normal break-words w-full">
                    {replyTo.text.startsWith("IMG_SYS") ? "📷 Photo" : replyTo.text.startsWith("VID_SYS") ? "🎥 Video" : replyTo.text.startsWith("STK_SYS") ? "✨ Sticker" : replyTo.text.split("|||").pop()}
                 </span>
              </div>
-             <button onClick={() => setReplyTo(null)} className="p-1.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"><X size={16}/></button>
+             <button onClick={() => setReplyTo(null)} className="p-1.5 shrink-0 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"><X size={16}/></button>
            </motion.div>
         )}
       </AnimatePresence>

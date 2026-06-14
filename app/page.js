@@ -179,7 +179,6 @@ export default function Home() {
     if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
   };
 
-  // 🔥 PEER RECONNECT FIX
   useEffect(() => {
     if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") && currentUser) {
       
@@ -205,7 +204,6 @@ export default function Home() {
     }
   }, [appState, currentUser, studentId]);
 
-  // 🔥 START CALL FIX
   const startCall = async (isVideo) => {
     try {
       if (!peerInstance.current) throw new Error("Network not ready yet. Please wait a second.");
@@ -314,8 +312,17 @@ export default function Home() {
     }
   };
 
+  // 🔥 MULTI-USER REACTION LOGIC
   const handleReaction = (msgId, emoji) => {
-    setMessages(prev => prev.map(m => (m.id === msgId || m._id === msgId) ? { ...m, reaction: emoji } : m));
+    setMessages(prev => prev.map(m => {
+      if (m.id === msgId || m._id === msgId) {
+         const newReactions = { ...(m.reactions || {}) };
+         if (emoji) newReactions.me = emoji;
+         else delete newReactions.me;
+         return { ...m, reactions: newReactions };
+      }
+      return m;
+    }));
     const pingText = CryptoJS.AES.encrypt(`SYS_REACT::${msgId}::${emoji}`, SECRET_KEY).toString();
     fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
   };
@@ -495,11 +502,20 @@ export default function Home() {
         if (text === "SYS_MIC_OFF") { setIsRemoteMicMuted(true); return; }
         if (text === "SYS_MIC_ON") { setIsRemoteMicMuted(false); return; }
 
+        // 🔥 MULTI-USER REACTION RECEIVE LOGIC
         if (text.startsWith("SYS_REACT::")) {
            const parts = text.split("::");
            const reactMsgId = parts[1];
            const emoji = parts[2];
-           setMessages((prev) => prev.map((m) => (m.id == reactMsgId || m._id == reactMsgId) ? { ...m, reaction: emoji } : m));
+           setMessages((prev) => prev.map((m) => {
+             if (m.id == reactMsgId || m._id == reactMsgId) {
+                const newReactions = { ...(m.reactions || {}) };
+                if (emoji) newReactions.them = emoji;
+                else delete newReactions.them;
+                return { ...m, reactions: newReactions };
+             }
+             return m;
+           }));
            return;
         }
 

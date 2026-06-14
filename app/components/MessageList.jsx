@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCheck, Play } from 'lucide-react';
 
-// 🔥 ZERO-LAG CSS FLOATING HEARTS (Fixed: No longer stuck at the top)
 const FloatingHearts = () => {
   const [hearts, setHearts] = useState([]);
   useEffect(() => {
@@ -26,8 +25,8 @@ const FloatingHearts = () => {
         }
         .css-heart { 
           position: absolute; 
-          top: 100%; /* Hidden below screen initially */
-          opacity: 0; /* Hidden during delay */
+          top: 100%;
+          opacity: 0;
           animation: floatUp linear infinite; 
         }
       `}</style>
@@ -57,18 +56,6 @@ const SendBurst = () => {
   );
 };
 
-// 🔥 UNIVERSAL TIME BLOCK COMPONENT
-const TimeBlock = ({ msg, isMe, absolute }) => (
-  <div className={`flex items-center justify-end gap-1 text-[10px] font-medium tracking-wide select-none 
-    ${isMe ? "text-white/90" : "text-slate-400 dark:text-slate-500"} 
-    ${absolute ? "absolute bottom-0 right-0" : "mt-1 w-full"}`}
-  >
-    <span className="leading-none pt-[1px]">{msg.time}</span>
-    {isMe && <CheckCheck size={14} strokeWidth={2.5} className={msg.seenAt ? "text-blue-200" : "text-white/60"} />}
-  </div>
-);
-
-// 🔥 THE PERFECT BUBBLE COMPONENT
 const MessageBubble = ({ 
   msg, isMe, showAvatar, isDarkMode, isLoveMode, 
   setExpandedImage, setReplyTo, handleReaction,
@@ -126,10 +113,21 @@ const MessageBubble = ({
     ? (isDarkMode ? "bg-[#2e1018] border border-rose-900/50 text-rose-100 shadow-sm" : "bg-[#fff0f5] border border-rose-200 text-rose-900 shadow-sm")
     : (isDarkMode ? "bg-[#27272a] text-slate-200 border border-[#3f3f46] shadow-sm" : "bg-white text-slate-800 border-slate-200 shadow-sm border");
 
+  let myReaction = msg.reactions?.me;
+  let theirReaction = msg.reactions?.them;
+
+  if (!msg.reactions && msg.reaction) {
+     theirReaction = msg.reaction; 
+  }
+
+  const reactionCounts = {};
+  if (myReaction) reactionCounts[myReaction] = (reactionCounts[myReaction] || 0) + 1;
+  if (theirReaction) reactionCounts[theirReaction] = (reactionCounts[theirReaction] || 0) + 1;
+  const uniqueEmojis = Object.keys(reactionCounts);
+
   return (
     <motion.div layout className={`flex w-full relative z-10 ${isMe ? 'justify-end' : 'justify-start'}`}>
       
-      {/* 🔥 AVATARS UNTOUCHED */}
       {showAvatar && (
         <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 mr-2 mt-auto mb-1 flex-shrink-0 overflow-hidden border border-slate-300 dark:border-slate-600 shadow-sm z-10">
           <img src={isLoveMode ? "/love.png" : "/cat.png"} alt="avatar" className="w-full h-full object-cover" />
@@ -137,9 +135,9 @@ const MessageBubble = ({
       )}
       {!showAvatar && !isMe && <div className="w-9 flex-shrink-0"></div>}
 
-      <div className={`relative group max-w-[85%] sm:max-w-[75%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+      <div className={`relative group max-w-[85%] sm:max-w-[75%] flex flex-col min-w-0 overflow-visible ${isMe ? 'items-end' : 'items-start'}`}>
         
-        {/* REACTION EMOJI POPOVER MENU */}
+        {/* REACTION EMOJI MENU */}
         <AnimatePresence>
           {activeReactionMsg === (msg.id || msg._id) && (
             <motion.div
@@ -154,10 +152,10 @@ const MessageBubble = ({
               {['❤️','😂','😮','😢','😡','👍'].map(emoji => (
                  <button 
                    key={emoji} 
-                   className={`text-xl transition-transform hover:scale-125 hover:-translate-y-1 ${msg.reaction === emoji ? 'bg-black/20 dark:bg-white/20 rounded-full scale-110' : ''}`} 
+                   className={`text-xl transition-transform hover:scale-125 hover:-translate-y-1 ${myReaction === emoji ? 'bg-black/20 dark:bg-white/20 rounded-full scale-110' : ''}`} 
                    onClick={(e) => {
                      e.stopPropagation(); 
-                     handleReaction(msg.id || msg._id, msg.reaction === emoji ? "" : emoji);
+                     handleReaction(msg.id || msg._id, myReaction === emoji ? "" : emoji);
                      setActiveReactionMsg(null);
                    }}
                  >
@@ -168,7 +166,7 @@ const MessageBubble = ({
           )}
         </AnimatePresence>
 
-        <div className="relative w-fit flex flex-col">
+        <div className="relative w-fit max-w-full flex flex-col min-w-0">
           <motion.div
             layout 
             drag="x"
@@ -189,13 +187,13 @@ const MessageBubble = ({
             }} 
             onDoubleClick={(e) => { 
               e.stopPropagation(); 
-              handleReaction(msg.id || msg._id, msg.reaction === '❤️' ? "" : '❤️'); 
+              handleReaction(msg.id || msg._id, myReaction === '❤️' ? "" : '❤️'); 
               if (navigator.vibrate) navigator.vibrate(50);
             }}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, y: 5, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            className={`relative px-4 py-2 shadow-sm cursor-pointer select-none flex flex-col text-left text-[15px] leading-snug w-fit break-words
+            className={`relative px-4 py-2 shadow-sm cursor-pointer select-none flex flex-col text-left text-[15px] leading-snug w-fit max-w-full break-words min-w-0
               ${isSticker ? "bg-transparent shadow-none p-0" : 
                  (isMe 
                     ? `${myBubbleStyle} rounded-2xl rounded-tr-sm`
@@ -205,19 +203,19 @@ const MessageBubble = ({
           >
             {isMe && isLoveMode && isNewMessage && <SendBurst />}
 
-            {/* QUOTE BOX */}
             {isReply && (
-               <div className={`mb-1 mt-0.5 p-1.5 rounded-lg border-l-4 text-[12px] leading-tight flex flex-col truncate 
+               <div className={`mb-1 mt-0.5 p-1.5 rounded-lg border-l-4 text-[12px] leading-tight flex flex-col min-w-0 w-full
                   ${isMe ? "bg-black/15 border-white/60 text-white/95" : 
                            isLoveMode ? "bg-black/10 border-rose-400 text-rose-800 dark:text-rose-200" :
                            isDarkMode ? "bg-white/5 border-indigo-400 text-slate-300" : 
                                         "bg-black/5 border-indigo-500 text-slate-600"}`}>
                   <span className="font-bold mb-0.5 opacity-80 text-[10px]">{isMe ? "You" : "Partner"}</span>
-                  <span className="truncate opacity-90">{originalText.startsWith("IMG_SYS") ? "📷 Photo" : originalText.startsWith("VID_SYS") ? "🎥 Video" : originalText.startsWith("STK_SYS") ? "✨ Sticker" : originalText.split("|||").pop()}</span>
+                  <span className="line-clamp-3 text-ellipsis overflow-hidden whitespace-normal break-words min-w-0 w-full">
+                     {originalText.startsWith("IMG_SYS") ? "📷 Photo" : originalText.startsWith("VID_SYS") ? "🎥 Video" : originalText.startsWith("STK_SYS") ? "✨ Sticker" : originalText.split("|||").pop()}
+                  </span>
                </div>
             )}
             
-            {/* MEDIA AND TEXT RENDERING */}
             {isSticker ? (
                 <img src={mediaUrl} alt="Sticker" className={`relative z-10 w-32 h-32 object-contain pointer-events-none drop-shadow-lg ${isLoveMode ? 'filter saturate-150 contrast-110' : ''}`} />
             ) : isImage ? (
@@ -233,7 +231,6 @@ const MessageBubble = ({
                    {content}
                  </span>
                  
-                 {/* EMBEDS LOGIC */}
                  {igEmbedUrl && (
                    <div className={`mt-2 w-[240px] sm:w-[300px] h-[400px] rounded-xl overflow-hidden border ${isLoveMode ? "bg-[#2e1018] border-rose-900/50" : isDarkMode ? "bg-black border-[#3f3f46]" : "bg-white border-slate-200"}`}>
                       <iframe src={igEmbedUrl} className="w-full h-full border-none" scrolling="no" allowTransparency="true"></iframe>
@@ -248,28 +245,38 @@ const MessageBubble = ({
             )}
           </motion.div>
 
-          {/* ASSIGNED REACTION */}
           <AnimatePresence>
-            {msg.reaction && (
-              <motion.button 
+            {uniqueEmojis.length > 0 && (
+              <motion.div 
                 layout
                 initial={{scale:0}} animate={{scale:1}} exit={{scale:0}}
-                onClick={(e) => { 
-                  e.stopPropagation(); 
-                  handleReaction(msg.id || msg._id, ""); 
-                  if (navigator.vibrate) navigator.vibrate(30);
-                }}
-                className={`absolute -bottom-3 ${isMe ? "left-0 -ml-2" : "right-0 -mr-2"} w-[24px] h-[24px] flex items-center justify-center rounded-full shadow-sm z-30 border transition-transform hover:scale-110 active:scale-90
+                className={`absolute -bottom-3 ${isMe ? "left-0 -ml-2" : "right-0 -mr-2"} flex items-center gap-0.5 p-0.5 px-1.5 rounded-full shadow-sm z-30 border
                   ${isLoveMode ? "bg-[#3f0f1f] border-rose-500/40" : 
                     isDarkMode ? "bg-[#27272a] border-[#3f3f46]" : "bg-white border-slate-200"}`}
               >
-                 <span className="text-[12px] leading-none drop-shadow-sm">{msg.reaction}</span>
-              </motion.button>
+                 {uniqueEmojis.map(emoji => {
+                   const count = reactionCounts[emoji];
+                   const didIReactWithThis = myReaction === emoji;
+                   return (
+                     <button
+                       key={emoji}
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleReaction(msg.id || msg._id, didIReactWithThis ? "" : emoji);
+                         if (navigator.vibrate) navigator.vibrate(30);
+                       }}
+                       className={`flex items-center justify-center rounded-full px-1 py-0.5 transition-transform hover:scale-110 active:scale-90 ${didIReactWithThis ? "bg-black/10 dark:bg-white/10" : ""}`}
+                     >
+                       <span className="text-[12px] leading-none drop-shadow-sm">{emoji}</span>
+                       {count > 1 && <span className={`text-[10px] leading-none ml-1 font-bold ${isLoveMode ? 'text-rose-300' : isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{count}</span>}
+                     </button>
+                   )
+                 })}
+              </motion.div>
             )}
           </AnimatePresence>
         </div>
 
-        {/* TIME AND TICKS OUTSIDE THE BUBBLE */}
         {!isSticker && (
           <div className={`flex items-center gap-1 mt-1 text-[10.5px] font-medium tracking-wide
             ${isLoveMode ? "text-rose-300/80" : isDarkMode ? "text-slate-400" : "text-slate-500"} 
@@ -280,7 +287,6 @@ const MessageBubble = ({
             )}
           </div>
         )}
-
       </div>
     </motion.div>
   );
@@ -294,6 +300,19 @@ export default function MessageList({
   const [activeReactionMsg, setActiveReactionMsg] = useState(null);
   const currentBgPattern = isLoveMode ? bgPatternLove : (isDarkMode ? bgPatternDark : bgPatternLight);
 
+  // 🔥 FIX 2: AUTOMATIC SCROLL WATCHER
+  // Jab bhi naya message aayega, chat automatically neeche ghisak jayegi
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      setTimeout(() => {
+        chatContainerRef.current.scrollTo({
+          top: chatContainerRef.current.scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 50);
+    }
+  }, [messages, chatContainerRef]);
+
   return (
     <div className="relative flex-1 w-full overflow-hidden flex flex-col">
       <div 
@@ -303,7 +322,6 @@ export default function MessageList({
         onClick={() => setActiveReactionMsg(null)} 
       >
         
-        {/* 🔥 CSS-BASED FLOATING HEARTS (NO LAG, NOT STUCK AT TOP) */}
         {isLoveMode && <FloatingHearts />}
 
         <div className="h-14 w-full shrink-0"></div>
@@ -331,7 +349,9 @@ export default function MessageList({
           })}
         </AnimatePresence>
         
-        <div className="h-4 w-full shrink-0" />
+        {/* 🔥 FIX 3: INCREASED BOTTOM PADDING
+            Ab aakhiri message input box se chipkega nahi, safe distance pe rahega */}
+        <div className="h-12 w-full shrink-0" /> 
       </div>
 
       <AnimatePresence>
