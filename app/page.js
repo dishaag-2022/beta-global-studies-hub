@@ -73,9 +73,7 @@ export default function Home() {
   const [remoteFilter, setRemoteFilter] = useState(0);
   const [isCallMinimized, setIsCallMinimized] = useState(false);
 
-  // 🔥 NEW REF: Pura chat container track karne ke liye
   const chatWrapperRef = useRef(null);
-
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -89,13 +87,10 @@ export default function Home() {
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
 
-  // 🔥 THE MAGIC FIX: Keyboard Header Alignment Logic
   useEffect(() => {
     if (appState !== "CHAT") return;
     
     const handleViewportChange = () => {
-      // Ye React ko re-render kiye bina direct DOM ko size batayega,
-      // Isse na keyboard girega aur na hi Header bahar jayega!
       if (chatWrapperRef.current && window.visualViewport) {
         chatWrapperRef.current.style.height = `${window.visualViewport.height}px`;
         chatWrapperRef.current.style.top = `${window.visualViewport.offsetTop}px`;
@@ -184,8 +179,10 @@ export default function Home() {
     if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
   };
 
+  // 🔥 THE FIX: PeerJS Initialization. Only runs ONCE when user logs in. 
+  // It no longer destroys and restarts when you switch from Chat to Scribble!
   useEffect(() => {
-    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") && currentUser) {
+    if (currentUser && !peerInstance.current) {
       import('peerjs').then(({ default: Peer }) => {
         const peer = new Peer(studentId.trim(), {
           config: {
@@ -201,13 +198,16 @@ export default function Home() {
           setIsVideoCall(call.metadata?.isVideo || false);
           setCallState("RINGING");
         });
+        peer.on('error', (err) => console.error("PeerJS Error:", err));
         peerInstance.current = peer;
       });
     }
-  }, [appState, currentUser, studentId]);
+  }, [currentUser, studentId]);
 
   const startCall = async (isVideo) => {
     try {
+      if (!peerInstance.current) throw new Error("Connection not ready. Please wait a moment.");
+      
       const isVideoReq = isVideo === true;
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
 
@@ -215,19 +215,24 @@ export default function Home() {
         stream.getAudioTracks()[0].enabled = false;
       }
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
-      setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
+      setLocalFilter(0); setRemoteFilter(0); 
+      
+      // 🔥 FIX: Auto-minimize the call overlay if we are outside the Chat screen (e.g., Scribble Board)
+      setIsCallMinimized(appState !== "CHAT");
 
       setLocalStream(stream);
       setIsVideoCall(isVideoReq);
       setCallState("ON_CALL");
 
       const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo: isVideoReq } });
+      if (!call) throw new Error("Could not connect to partner. They might be offline.");
+      
       currentCall.current = call;
 
       call.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       call.on('close', () => endCall());
     } catch (err) {
-      alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}`);
+      alert(`❌ Call Error: ${err.message || err.name}`);
       setCallState("IDLE");
     }
   };
@@ -240,7 +245,10 @@ export default function Home() {
         stream.getAudioTracks()[0].enabled = false;
       }
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
-      setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
+      setLocalFilter(0); setRemoteFilter(0); 
+      
+      // 🔥 FIX: Auto-minimize the call overlay if we are outside the Chat screen
+      setIsCallMinimized(appState !== "CHAT");
 
       setLocalStream(stream);
 
@@ -967,7 +975,6 @@ export default function Home() {
         />
       )}
 
-      {/* 🔥 THE CHAT WRAPPER: Removed transition-all duration-700 and added chatWrapperRef */}
       {appState === "CHAT" && (
         <motion.div
           ref={chatWrapperRef}
@@ -1012,7 +1019,13 @@ export default function Home() {
             setReplyTo={setReplyTo}
           />
 
-          <CallOverlay
+        </motion.div>
+      )}
+
+      {/* 🔥 THE MAGIC FIX: Moved CallOverlay outside CHAT block. 
+          Ab ye Scribble Board, Menu, aur Snap par bhi kaam karega! */}
+      {currentUser && callState !== "IDLE" && (
+         <CallOverlay
             callState={callState}
             isVideoCall={isVideoCall}
             localStream={localStream}
@@ -1037,7 +1050,6 @@ export default function Home() {
             }}
             remoteFilter={remoteFilter}
           />
-        </motion.div>
       )}
 
     </AnimatePresence>
