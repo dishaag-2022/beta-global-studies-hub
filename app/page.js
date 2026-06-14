@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import PusherJS from "pusher-js";
 import CryptoJS from "crypto-js";
-import { Lock, MessageSquare, Camera, Aperture, ChevronRight, ChevronLeft, X, Loader2, Palette } from "lucide-react";
+// 🔥 Added BellRing icon for the new menu option
+import { Lock, MessageSquare, Camera, Aperture, ChevronRight, ChevronLeft, X, Loader2, Palette, BellRing } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import ModernDecoy from "./components/DecoyPortal";
@@ -11,6 +12,8 @@ import MessageList from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
 import CallOverlay from "./components/CallOverlay";
 import ScribbleBoard from "./components/ScribbleBoard";
+// 🔥 NEW: Imported Custom Ping Component
+import CustomPing from "./components/CustomPing";
 
 const SECRET_KEY = "tour-404-classified-key";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -46,11 +49,7 @@ export default function Home() {
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const [lastActiveTime, setLastActiveTime] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [tick, setTick] = useState(0);
   const [expandedImage, setExpandedImage] = useState(null);
-  const [viewportHeight, setViewportHeight] = useState("100dvh");
-
-  // 🔥 NEW STATE FOR SWIPE TO REPLY
   const [replyTo, setReplyTo] = useState(null);
 
   const [callState, setCallState] = useState("IDLE");
@@ -80,15 +79,21 @@ export default function Home() {
   const inputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
-  const prevMsgCount = useRef(0);
   const peerTimeout = useRef(null);
   const typingTimeout = useRef(null);
   const lastTypingTime = useRef(0);
   const ignorePanicRef = useRef(false);
   const snapVideoRef = useRef(null);
-
+  
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
+
+  // 🔥 Ask for notification permissions proactively on mount
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   const sendDrawEvent = (x0, y0, x1, y1, color) => {
     const drawData = `SYS_DRAW::${x0.toFixed(4)},${y0.toFixed(4)},${x1.toFixed(4)},${y1.toFixed(4)},${color}`;
@@ -147,7 +152,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE") && currentUser) {
+    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") && currentUser) {
       import('peerjs').then(({ default: Peer }) => {
         const peer = new Peer(studentId.trim(), {
           config: {
@@ -189,7 +194,6 @@ export default function Home() {
       call.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       call.on('close', () => endCall());
     } catch (err) {
-      console.error("Call Start Error:", err);
       alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}`);
       setCallState("IDLE");
     }
@@ -214,7 +218,6 @@ export default function Home() {
       incomingCall.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       incomingCall.on('close', () => endCall());
     } catch (err) {
-      console.error("Call Answer Error:", err);
       alert(`❌ Hardware/Device Error: ${err.name} - ${err.message}`);
       rejectCall();
     }
@@ -258,7 +261,6 @@ export default function Home() {
     }
   };
 
-  // 🔥 NEW FUNCTION FOR EMOJI REACTIONS
   const handleReaction = (msgId, emoji) => {
     setMessages(prev => prev.map(m => (m.id === msgId || m._id === msgId) ? { ...m, reaction: emoji } : m));
     const pingText = CryptoJS.AES.encrypt(`SYS_REACT::${msgId}::${emoji}`, SECRET_KEY).toString();
@@ -266,9 +268,21 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (appState === "CHAT" || appState === "MODE_SELECTION" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE") {
+    // Agar in chaar me se kisi bhi screen par hai, toh Back dabane par Mode Selection pe jao
+    if (appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") {
       window.history.pushState(null, null, window.location.href);
-      const handlePopState = () => handleLogout();
+      const handlePopState = () => {
+        setAppState("MODE_SELECTION");
+      };
+      window.addEventListener("popstate", handlePopState);
+      return () => window.removeEventListener("popstate", handlePopState);
+    } 
+    // Agar pehle se Mode Selection par hai, toh Back dabane par Logout (Decoy) pe jao
+    else if (appState === "MODE_SELECTION") {
+      window.history.pushState(null, null, window.location.href);
+      const handlePopState = () => {
+        handleLogout();
+      };
       window.addEventListener("popstate", handlePopState);
       return () => window.removeEventListener("popstate", handlePopState);
     }
@@ -309,22 +323,28 @@ export default function Home() {
   useEffect(() => {
     if (appState !== "CHAT" && appState !== "SNAP_MODE") return;
     const interval = setInterval(() => {
-      const now = Date.now(); setTick(now);
-      setMessages((prev) => prev.filter((msg) => {
-        if (msg.sender === "me" && !msg.seenAt) return true;
-        if (msg.seenAt) {
-          const isExpired = (now - msg.seenAt) >= 15000;
-          if (isExpired && msg.sender === "them" && msg._id) {
-             fetch("/api/messages/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: msg._id }) }).catch(e => {});
-             if (msg.text.startsWith("IMG_SYS::") || msg.text.startsWith("VID_SYS::") || msg.text.startsWith("STK_SYS::")) {
-               const parts = msg.text.split("::"); const dToken = parts[2];
-               if (dToken && dToken !== "no_token") fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/delete_by_token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: dToken }) }).catch(e => {});
-             }
+      const now = Date.now();
+      setMessages((prev) => {
+        let hasChanges = false;
+        const newMessages = prev.filter((msg) => {
+          if (msg.sender === "me" && !msg.seenAt) return true;
+          if (msg.seenAt) {
+            const isExpired = (now - msg.seenAt) >= 15000;
+            if (isExpired && msg.sender === "them" && msg._id) {
+               hasChanges = true;
+               fetch("/api/messages/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: msg._id }) }).catch(e => {});
+               if (msg.text.startsWith("IMG_SYS::") || msg.text.startsWith("VID_SYS::") || msg.text.startsWith("STK_SYS::")) {
+                 const parts = msg.text.split("::"); const dToken = parts[2];
+                 if (dToken && dToken !== "no_token") fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/delete_by_token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: dToken }) }).catch(e => {});
+               }
+            }
+            if (isExpired) hasChanges = true;
+            return !isExpired;
           }
-          return !isExpired;
-        }
-        return true;
-      }));
+          return true;
+        });
+        return hasChanges ? newMessages : prev;
+      });
     }, 1000);
     return () => clearInterval(interval);
   }, [appState]);
@@ -389,7 +409,7 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if ((appState !== "CHAT" && appState !== "SNAP_MODE" && appState !== "SCRIBBLE_MODE") || !currentUser || !activeChannel) return;
+    if ((appState !== "CHAT" && appState !== "SNAP_MODE" && appState !== "SCRIBBLE_MODE" && appState !== "CUSTOM_PING") || !currentUser || !activeChannel) return;
     setIsPeerActive(false); setIsPeerTyping(false);
 
     const pusher = new PusherJS(process.env.NEXT_PUBLIC_PUSHER_KEY, { cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER });
@@ -412,12 +432,28 @@ export default function Home() {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY);
         const text = bytes.toString(CryptoJS.enc.Utf8);
 
+        // 🔥 THE FIX: Capture the Custom Alert Notification
+        if (text.startsWith("SYS_CUSTOM_PING::")) {
+            const alertMsg = text.substring("SYS_CUSTOM_PING::".length);
+            
+            // Make device vibrate (if supported)
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+
+            // Try sending a native notification if authorized, else fallback to alert
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(`New Alert from ${studentId.trim() === "UserA" ? "UserB" : "Partner"}`, { body: alertMsg });
+                alert(`🔔 Alert from Partner:\n\n${alertMsg}`); // Optional: Can keep alert too to forcefully pause their screen
+            } else {
+                alert(`🔔 Alert from Partner:\n\n${alertMsg}`);
+            }
+            return;
+        }
+
         if (text === "SYS_VID_OFF") { setIsRemoteVideoMuted(true); return; }
         if (text === "SYS_VID_ON") { setIsRemoteVideoMuted(false); return; }
         if (text === "SYS_MIC_OFF") { setIsRemoteMicMuted(true); return; }
         if (text === "SYS_MIC_ON") { setIsRemoteMicMuted(false); return; }
 
-        // 🔥 NEW PUSHER BIND FOR EMOJI REACTIONS
         if (text.startsWith("SYS_REACT::")) {
            const parts = text.split("::");
            const reactMsgId = parts[1];
@@ -685,10 +721,8 @@ export default function Home() {
 
       const data = await res.json();
       if (!data.success) alert("❌ Ping Failed: " + data.error);
-      else alert("✅ Ping Sent: " + JSON.stringify(data.receipt));
       setTimeout(() => setIsPinging(false), 3000);
     } catch (error) {
-      alert("❌ Network Error: " + error.message);
       setIsPinging(false);
     }
   };
@@ -728,14 +762,14 @@ export default function Home() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
+          className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 overflow-y-auto custom-scrollbar ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
         >
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
             <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[100px] rounded-full" />
             <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full" />
           </div>
 
-          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-10 text-center z-10">
+          <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-8 mt-12 text-center z-10">
             <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg border ${isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
                <Aperture className={isDarkMode ? "text-blue-400" : "text-blue-600"} size={32} />
             </div>
@@ -743,7 +777,7 @@ export default function Home() {
             <p className="text-slate-500 mt-2 text-sm">Choose your communication module</p>
           </motion.div>
 
-          <div className="w-full max-w-sm space-y-4 z-10">
+          <div className="w-full max-w-sm space-y-4 z-10 mb-12">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -797,8 +831,39 @@ export default function Home() {
               </div>
               <ChevronRight className="text-slate-500 group-hover:text-green-500 transition-colors" />
             </motion.button>
+
+            {/* 🔥 NEW CUSTOM ALERT MODULE BUTTON */}
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => setAppState("CUSTOM_PING")}
+              className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-amber-500/50" : "bg-white border-slate-200 hover:border-amber-500/50"}`}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
+                  <BellRing className="text-amber-500" size={24} />
+                </div>
+                <div className="text-left">
+                  <h3 className="font-semibold text-lg">Custom Alert</h3>
+                  <p className="text-slate-500 text-xs">Send targeted notifications</p>
+                </div>
+              </div>
+              <ChevronRight className="text-slate-500 group-hover:text-amber-500 transition-colors" />
+            </motion.button>
           </div>
         </motion.div>
+      )}
+
+      {/* 🔥 RENDER THE NEW CUSTOM PING MODULE */}
+      {appState === "CUSTOM_PING" && (
+        <CustomPing
+          setAppState={setAppState}
+          studentId={studentId}
+          targetNode={targetNode}
+          activeChannel={activeChannel}
+          isDarkMode={isDarkMode}
+          isLoveMode={isLoveMode}
+        />
       )}
 
       {appState === "SNAP_MODE" && (
@@ -807,7 +872,7 @@ export default function Home() {
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 50 }}
-          className="absolute inset-0 w-full h-full bg-black z-[100] flex flex-col overflow-hidden select-none"
+          className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none"
         >
           <video
             ref={snapVideoRef}
@@ -890,9 +955,8 @@ export default function Home() {
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -50 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className={`absolute inset-0 font-sans flex flex-col overflow-hidden transition-all duration-700 z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
+          className={`fixed inset-0 w-full h-[100dvh] font-sans flex flex-col overflow-hidden transition-all duration-700 z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
           style={{
-            height: viewportHeight,
             backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'),
             backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none'
           }}
@@ -902,10 +966,8 @@ export default function Home() {
 
           <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} />
 
-          {/* 🔥 NEW PROPS PASSED TO MESSAGE LIST */}
           <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} />
 
-          {/* 🔥 NEW PROPS PASSED TO MESSAGE INPUT */}
           <MessageInput
             inputRef={inputRef}
             input={input}

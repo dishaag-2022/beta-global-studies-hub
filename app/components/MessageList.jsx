@@ -2,32 +2,43 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCheck, Play } from 'lucide-react';
 
-// 🔥 SMOOTH FLOATING HEARTS
+// 🔥 ZERO-LAG CSS FLOATING HEARTS (Fixed: No longer stuck at the top)
 const FloatingHearts = () => {
   const [hearts, setHearts] = useState([]);
   useEffect(() => {
-    setHearts(Array.from({ length: 12 }).map(() => ({
+    setHearts(Array.from({ length: 15 }).map(() => ({
       id: Math.random(),
       size: Math.random() * 15 + 10,
       left: Math.random() * 100,
       delay: Math.random() * 5,
-      duration: Math.random() * 8 + 8,
+      duration: Math.random() * 6 + 6,
     })));
   }, []);
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-40">
+      <style>{`
+        @keyframes floatUp {
+          0% { transform: translateY(0) scale(0.5); opacity: 0; }
+          20% { opacity: 0.8; }
+          80% { opacity: 1; }
+          100% { transform: translateY(-120vh) scale(1.2); opacity: 0; }
+        }
+        .css-heart { 
+          position: absolute; 
+          top: 100%; /* Hidden below screen initially */
+          opacity: 0; /* Hidden during delay */
+          animation: floatUp linear infinite; 
+        }
+      `}</style>
       {hearts.map((h) => (
-        <motion.div
+        <div
           key={h.id}
-          initial={{ y: "100vh", opacity: 0 }}
-          animate={{ y: "-10vh", opacity: [0, 0.8, 1, 0] }}
-          transition={{ duration: h.duration, repeat: Infinity, delay: h.delay, ease: "linear" }}
-          className="absolute drop-shadow-md"
-          style={{ left: `${h.left}%`, fontSize: h.size }}
+          className="css-heart drop-shadow-md"
+          style={{ left: `${h.left}%`, fontSize: `${h.size}px`, animationDuration: `${h.duration}s`, animationDelay: `${h.delay}s` }}
         >
           {Math.random() > 0.5 ? "❤️" : "💖"}
-        </motion.div>
+        </div>
       ))}
     </div>
   );
@@ -46,7 +57,18 @@ const SendBurst = () => {
   );
 };
 
-// 🔥 THE PERFECT BUBBLE COMPONENT (TIME OUTSIDE BUBBLE)
+// 🔥 UNIVERSAL TIME BLOCK COMPONENT
+const TimeBlock = ({ msg, isMe, absolute }) => (
+  <div className={`flex items-center justify-end gap-1 text-[10px] font-medium tracking-wide select-none 
+    ${isMe ? "text-white/90" : "text-slate-400 dark:text-slate-500"} 
+    ${absolute ? "absolute bottom-0 right-0" : "mt-1 w-full"}`}
+  >
+    <span className="leading-none pt-[1px]">{msg.time}</span>
+    {isMe && <CheckCheck size={14} strokeWidth={2.5} className={msg.seenAt ? "text-blue-200" : "text-white/60"} />}
+  </div>
+);
+
+// 🔥 THE PERFECT BUBBLE COMPONENT
 const MessageBubble = ({ 
   msg, isMe, showAvatar, isDarkMode, isLoveMode, 
   setExpandedImage, setReplyTo, handleReaction,
@@ -107,14 +129,14 @@ const MessageBubble = ({
   return (
     <motion.div layout className={`flex w-full relative z-10 ${isMe ? 'justify-end' : 'justify-start'}`}>
       
+      {/* 🔥 AVATARS UNTOUCHED */}
       {showAvatar && (
         <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 mr-2 mt-auto mb-1 flex-shrink-0 overflow-hidden border border-slate-300 dark:border-slate-600 shadow-sm z-10">
-          <img src={isLoveMode ? "/love.jpg" : "/cat.jpg"} alt="avatar" className="w-full h-full object-cover" />
+          <img src={isLoveMode ? "/love.png" : "/cat.png"} alt="avatar" className="w-full h-full object-cover" />
         </div>
       )}
       {!showAvatar && !isMe && <div className="w-9 flex-shrink-0"></div>}
 
-      {/* 🔥 MAIN WRAPPER: Flex Column alignments keep time below bubble */}
       <div className={`relative group max-w-[85%] sm:max-w-[75%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
         
         {/* REACTION EMOJI POPOVER MENU */}
@@ -146,7 +168,6 @@ const MessageBubble = ({
           )}
         </AnimatePresence>
 
-        {/* INNER WRAPPER FOR BUBBLE + REACTION BADGE */}
         <div className="relative w-fit flex flex-col">
           <motion.div
             layout 
@@ -174,7 +195,6 @@ const MessageBubble = ({
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, y: 5, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            // 🔥 TEXT BUBBLE ONLY (Perfect tight fit padding)
             className={`relative px-4 py-2 shadow-sm cursor-pointer select-none flex flex-col text-left text-[15px] leading-snug w-fit break-words
               ${isSticker ? "bg-transparent shadow-none p-0" : 
                  (isMe 
@@ -249,7 +269,7 @@ const MessageBubble = ({
           </AnimatePresence>
         </div>
 
-        {/* 🔥 TIME AND TICKS COMPLETELY OUTSIDE THE BUBBLE */}
+        {/* TIME AND TICKS OUTSIDE THE BUBBLE */}
         {!isSticker && (
           <div className={`flex items-center gap-1 mt-1 text-[10.5px] font-medium tracking-wide
             ${isLoveMode ? "text-rose-300/80" : isDarkMode ? "text-slate-400" : "text-slate-500"} 
@@ -283,6 +303,7 @@ export default function MessageList({
         onClick={() => setActiveReactionMsg(null)} 
       >
         
+        {/* 🔥 CSS-BASED FLOATING HEARTS (NO LAG, NOT STUCK AT TOP) */}
         {isLoveMode && <FloatingHearts />}
 
         <div className="h-14 w-full shrink-0"></div>

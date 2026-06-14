@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
-import PushToken from "../../../models/PushToken";
+import PushToken from "../../../models/PushToken"; // Path check kar lena apne hisaab se
 
 export async function POST(req) {
   try {
@@ -8,7 +8,8 @@ export async function POST(req) {
       await mongoose.connect(process.env.MONGODB_URI, { family: 4 });
     }
 
-    const { sender, receiver } = await req.json();
+    // 🔥 THE FIX: Function ke ANDAR req.json() se sab ek sath extract karna hai
+    const { sender, receiver, channel, customMessage } = await req.json();
     const targetUser = receiver;
 
     if (!targetUser) {
@@ -19,7 +20,7 @@ export async function POST(req) {
       username: new RegExp('^' + targetUser.trim() + '$', 'i') 
     });
 
-    if (targetData && targetData.token) {
+   if (targetData && targetData.token) {
       const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: {
@@ -30,8 +31,11 @@ export async function POST(req) {
         body: JSON.stringify({
           to: targetData.token,
           sound: 'default',
-          title: "Global Studies Hub",
-          body: "New course modules have been added to your syllabus.",
+          title: "Global Studies Archive", 
+          
+          // 🔥 Custom message aayega toh wo dikhega, warna Decoy message!
+          body: customMessage ? customMessage : "New course modules have been added to your syllabus.",
+          
           priority: 'high', 
           channelId: 'default', 
         }),
