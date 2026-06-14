@@ -2,7 +2,6 @@
 import { useState, useEffect, useRef } from "react";
 import PusherJS from "pusher-js";
 import CryptoJS from "crypto-js";
-// 🔥 Added BellRing icon for the new menu option
 import { Lock, MessageSquare, Camera, Aperture, ChevronRight, ChevronLeft, X, Loader2, Palette, BellRing } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,7 +11,6 @@ import MessageList from "./components/MessageList";
 import MessageInput from "./components/MessageInput";
 import CallOverlay from "./components/CallOverlay";
 import ScribbleBoard from "./components/ScribbleBoard";
-// 🔥 NEW: Imported Custom Ping Component
 import CustomPing from "./components/CustomPing";
 
 const SECRET_KEY = "tour-404-classified-key";
@@ -75,6 +73,9 @@ export default function Home() {
   const [remoteFilter, setRemoteFilter] = useState(0);
   const [isCallMinimized, setIsCallMinimized] = useState(false);
 
+  // 🔥 NEW REF: Pura chat container track karne ke liye
+  const chatWrapperRef = useRef(null);
+
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const cameraInputRef = useRef(null);
@@ -88,7 +89,39 @@ export default function Home() {
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
 
-  // 🔥 Ask for notification permissions proactively on mount
+  // 🔥 THE MAGIC FIX: Keyboard Header Alignment Logic
+  useEffect(() => {
+    if (appState !== "CHAT") return;
+    
+    const handleViewportChange = () => {
+      // Ye React ko re-render kiye bina direct DOM ko size batayega,
+      // Isse na keyboard girega aur na hi Header bahar jayega!
+      if (chatWrapperRef.current && window.visualViewport) {
+        chatWrapperRef.current.style.height = `${window.visualViewport.height}px`;
+        chatWrapperRef.current.style.top = `${window.visualViewport.offsetTop}px`;
+      } else if (chatWrapperRef.current) {
+        chatWrapperRef.current.style.height = `${window.innerHeight}px`;
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleViewportChange);
+      window.visualViewport.addEventListener('scroll', handleViewportChange);
+      handleViewportChange();
+    } else {
+      window.addEventListener('resize', handleViewportChange);
+      handleViewportChange();
+    }
+
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleViewportChange);
+        window.visualViewport.removeEventListener('scroll', handleViewportChange);
+      }
+      window.removeEventListener('resize', handleViewportChange);
+    };
+  }, [appState]);
+
   useEffect(() => {
     if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
       Notification.requestPermission();
@@ -268,21 +301,14 @@ export default function Home() {
   };
 
   useEffect(() => {
-    // Agar in chaar me se kisi bhi screen par hai, toh Back dabane par Mode Selection pe jao
     if (appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") {
       window.history.pushState(null, null, window.location.href);
-      const handlePopState = () => {
-        setAppState("MODE_SELECTION");
-      };
+      const handlePopState = () => setAppState("MODE_SELECTION");
       window.addEventListener("popstate", handlePopState);
       return () => window.removeEventListener("popstate", handlePopState);
-    } 
-    // Agar pehle se Mode Selection par hai, toh Back dabane par Logout (Decoy) pe jao
-    else if (appState === "MODE_SELECTION") {
+    } else if (appState === "MODE_SELECTION") {
       window.history.pushState(null, null, window.location.href);
-      const handlePopState = () => {
-        handleLogout();
-      };
+      const handlePopState = () => handleLogout();
       window.addEventListener("popstate", handlePopState);
       return () => window.removeEventListener("popstate", handlePopState);
     }
@@ -432,17 +458,12 @@ export default function Home() {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY);
         const text = bytes.toString(CryptoJS.enc.Utf8);
 
-        // 🔥 THE FIX: Capture the Custom Alert Notification
         if (text.startsWith("SYS_CUSTOM_PING::")) {
             const alertMsg = text.substring("SYS_CUSTOM_PING::".length);
-            
-            // Make device vibrate (if supported)
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-
-            // Try sending a native notification if authorized, else fallback to alert
             if ("Notification" in window && Notification.permission === "granted") {
                 new Notification(`New Alert from ${studentId.trim() === "UserA" ? "UserB" : "Partner"}`, { body: alertMsg });
-                alert(`🔔 Alert from Partner:\n\n${alertMsg}`); // Optional: Can keep alert too to forcefully pause their screen
+                alert(`🔔 Alert from Partner:\n\n${alertMsg}`);
             } else {
                 alert(`🔔 Alert from Partner:\n\n${alertMsg}`);
             }
@@ -832,7 +853,6 @@ export default function Home() {
               <ChevronRight className="text-slate-500 group-hover:text-green-500 transition-colors" />
             </motion.button>
 
-            {/* 🔥 NEW CUSTOM ALERT MODULE BUTTON */}
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -854,7 +874,6 @@ export default function Home() {
         </motion.div>
       )}
 
-      {/* 🔥 RENDER THE NEW CUSTOM PING MODULE */}
       {appState === "CUSTOM_PING" && (
         <CustomPing
           setAppState={setAppState}
@@ -948,15 +967,19 @@ export default function Home() {
         />
       )}
 
+      {/* 🔥 THE CHAT WRAPPER: Removed transition-all duration-700 and added chatWrapperRef */}
       {appState === "CHAT" && (
         <motion.div
+          ref={chatWrapperRef}
           key="chat"
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -50 }}
           transition={{ type: "spring", stiffness: 300, damping: 30 }}
-          className={`fixed inset-0 w-full h-[100dvh] font-sans flex flex-col overflow-hidden transition-all duration-700 z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
+          className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
           style={{
+            top: 0,
+            height: '100%',
             backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'),
             backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none'
           }}
