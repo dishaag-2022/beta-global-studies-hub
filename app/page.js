@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import PusherJS from "pusher-js";
 import CryptoJS from "crypto-js";
-import { Lock, MessageSquare, Camera, Aperture, ChevronRight, ChevronLeft, X, Loader2, Palette, BellRing } from "lucide-react";
+import { Lock, ChevronRight, ChevronLeft, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import ModernDecoy from "./components/DecoyPortal";
@@ -12,6 +12,7 @@ import MessageInput from "./components/MessageInput";
 import CallOverlay from "./components/CallOverlay";
 import ScribbleBoard from "./components/ScribbleBoard";
 import CustomPing from "./components/CustomPing";
+import WhatsAppUI from "./components/WhatsAppUI";
 
 const SECRET_KEY = "tour-404-classified-key";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -27,6 +28,33 @@ const SNAP_FILTERS = [
   { name: "Thermal", filter: "invert(1) hue-rotate(180deg)" },
 ];
 
+// 🔥 Helper: Compress image for fast DB storage if Cloudinary isn't used
+const compressImageToBase64 = (file, maxWidth = 600, quality = 0.75) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = () => resolve(event.target.result);
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
 export default function Home() {
   const [appState, setAppState] = useState("DECOY");
   const [studentId, setStudentId] = useState("");
@@ -36,6 +64,14 @@ export default function Home() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [isLoveMode, setIsLoveMode] = useState(false); 
+
+  // 🔥 DB-BACKED PER-ROOM PROFILE & STATUS STATES
+  const [profileImage, setProfileImage] = useState("/cat.png");
+  const [partnerImage, setPartnerImage] = useState("/love.png");
+  const [callLogs, setCallLogs] = useState([]);
+  const [myStatuses, setMyStatuses] = useState([]); 
+  const [partnerStatuses, setPartnerStatuses] = useState([]);
+  const [isSavingMedia, setIsSavingMedia] = useState(false);
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -59,20 +95,18 @@ export default function Home() {
   const [isVideoMuted, setIsVideoMuted] = useState(false);
   const [isRemoteVideoMuted, setIsRemoteVideoMuted] = useState(false);
   const [isRemoteMicMuted, setIsRemoteMicMuted] = useState(false);
-
-  const [snapFilterIndex, setSnapFilterIndex] = useState(0);
-  const [isSnapping, setIsSnapping] = useState(false);
-
-  const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const videoChunksRef = useRef([]);
-  const pressTimerRef = useRef(null);
-  const isLongPressRef = useRef(false);
-
   const [localFilter, setLocalFilter] = useState(0);
   const [remoteFilter, setRemoteFilter] = useState(0);
   const [isCallMinimized, setIsCallMinimized] = useState(false);
 
+  const [snapFilterIndex, setSnapFilterIndex] = useState(0);
+  const [isSnapping, setIsSnapping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
+  const videoChunksRef = useRef([]);
+  const pressTimerRef = useRef(null);
+  const isLongPressRef = useRef(false);
   const chatWrapperRef = useRef(null);
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
@@ -83,13 +117,204 @@ export default function Home() {
   const lastTypingTime = useRef(0);
   const ignorePanicRef = useRef(false);
   const snapVideoRef = useRef(null);
-  
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
 
+  // Clear old legacy localStorage keys so old PFPs/statuses never leak across rooms
+  useEffect(() => {
+    try {
+      localStorage.removeItem("myProfileImage");
+      Object.keys(localStorage).forEach((k) => {
+        if (k.startsWith("dishaag_pfp_") || k.startsWith("dishaag_statuses_") || k.startsWith("dishaag_calls_")) {
+          localStorage.removeItem(k);
+        }
+      });
+    } catch (e) {}
+  }, []);
+
+  // Upload helper: Tries Cloudinary first, falls back to compressed Base64 for MongoDB
+  const uploadOrCompressImage = async (file) => {
+    if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_UPLOAD_PRESET && file) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.secure_url) return data.secure_url;
+      } catch (e) {}
+    }
+    return await compressImageToBase64(file);
+  };
+
+  // 🔥 DB HANDLER: Upload & Save Profile Picture
+  const handleUploadProfileImage = async (file) => {
+    if (!file || !studentId || !activeChannel) return;
+    setIsSavingMedia(true);
+    try {
+      const imgUrl = await uploadOrCompressImage(file);
+      setProfileImage(imgUrl);
+
+      await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "UPDATE_PROFILE_IMAGE",
+          userId: studentId.trim(),
+          partnerId: targetNode,
+          channel: activeChannel,
+          profileImage: imgUrl
+        })
+      });
+
+      const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
+      fetch("/api/pusher", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
+      }).catch(() => {});
+    } catch (e) {
+    } finally {
+      setIsSavingMedia(false);
+    }
+  };
+
+  // 🔥 DB HANDLER: Add 24h Status
+  const handleAddStatus = async (file, previewBase64, captionText) => {
+    if (!studentId || !activeChannel) return;
+    setIsSavingMedia(true);
+    try {
+      const imgUrl = file ? await uploadOrCompressImage(file) : previewBase64;
+      const newStatus = {
+        id: String(Date.now()),
+        image: imgUrl,
+        text: captionText || "",
+        time: Date.now(),
+        seenBy: []
+      };
+
+      const res = await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "ADD_STATUS",
+          userId: studentId.trim(),
+          partnerId: targetNode,
+          channel: activeChannel,
+          statusItem: newStatus
+        })
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.statuses)) {
+        setMyStatuses(data.statuses);
+      } else {
+        setMyStatuses(prev => [...prev, newStatus]);
+      }
+
+      const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
+      fetch("/api/pusher", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
+      }).catch(() => {});
+    } catch (e) {
+    } finally {
+      setIsSavingMedia(false);
+    }
+  };
+
+  // 🔥 DB HANDLER: Delete Status
+  const handleDeleteStatus = async (statusId) => {
+    setMyStatuses(prev => prev.filter(s => String(s.id) !== String(statusId)));
+    await fetch("/api/messages/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "DELETE_STATUS",
+        userId: studentId.trim(),
+        partnerId: targetNode,
+        channel: activeChannel,
+        statusId
+      })
+    }).catch(() => {});
+
+    const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
+    fetch("/api/pusher", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
+    }).catch(() => {});
+  };
+
+  // 🔥 DB HANDLER: Mark Partner's Status as Seen
+  const handleViewPartnerStatus = async (statusId) => {
+    if (!statusId || !targetNode) return;
+    const viewTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    await fetch("/api/messages/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "VIEW_PARTNER_STATUS",
+        userId: studentId.trim(),
+        partnerId: targetNode,
+        channel: activeChannel,
+        statusId,
+        viewerName: studentId.trim(),
+        viewerPfp: profileImage,
+        viewTime
+      })
+    }).catch(() => {});
+
+    const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
+    fetch("/api/pusher", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
+    }).catch(() => {});
+  };
+
+  // 🔥 DB HANDLER: Save / Delete Call Logs
+  const logCallToDb = async (callType, isVideo) => {
+    const callItem = {
+      id: Date.now(),
+      type: callType,
+      isVideo: Boolean(isVideo),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    setCallLogs(prev => [callItem, ...prev]);
+    await fetch("/api/messages/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "ADD_CALL_LOG",
+        userId: studentId.trim(),
+        partnerId: targetNode,
+        channel: activeChannel,
+        callItem
+      })
+    }).catch(() => {});
+  };
+
+  const handleDeleteCallLog = async (callId) => {
+    setCallLogs(prev => prev.filter(c => String(c.id) !== String(callId)));
+    await fetch("/api/messages/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "DELETE_CALL_LOG",
+        userId: studentId.trim(),
+        partnerId: targetNode,
+        channel: activeChannel,
+        callId
+      })
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     if (appState !== "CHAT") return;
-    
     const handleViewportChange = () => {
       if (chatWrapperRef.current && window.visualViewport) {
         chatWrapperRef.current.style.height = `${window.visualViewport.height}px`;
@@ -98,7 +323,6 @@ export default function Home() {
         chatWrapperRef.current.style.height = `${window.innerHeight}px`;
       }
     };
-
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleViewportChange);
       window.visualViewport.addEventListener('scroll', handleViewportChange);
@@ -107,7 +331,6 @@ export default function Home() {
       window.addEventListener('resize', handleViewportChange);
       handleViewportChange();
     }
-
     return () => {
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleViewportChange);
@@ -173,17 +396,17 @@ export default function Home() {
   const handleLogout = () => {
     endCall();
     setAppState("DECOY"); setStudentId(""); setPassword(""); setCurrentUser(null);
-    setMessages([]); setIsPeerActive(false); setIsPeerTyping(false); setLastActiveTime(null);
+    setMessages([]); setProfileImage("/cat.png"); setPartnerImage("/love.png");
+    setMyStatuses([]); setPartnerStatuses([]); setCallLogs([]);
+    setIsPeerActive(false); setIsPeerTyping(false); setLastActiveTime(null);
     setTargetNode(""); setActiveChannel(""); setInput(""); setShowEmojis(false);
     setExpandedImage(null); setReplyTo(null); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current);
     if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
   };
 
   useEffect(() => {
-    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") && currentUser) {
-      
+    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING" || appState === "WHATSAPP_UI") && currentUser) {
       if (peerInstance.current && !peerInstance.current.destroyed) return;
-
       import('peerjs').then(({ default: Peer }) => {
         const peer = new Peer(studentId.trim(), {
           config: {
@@ -198,23 +421,18 @@ export default function Home() {
           setIncomingCall(call);
           setIsVideoCall(call.metadata?.isVideo || false);
           setCallState("RINGING");
+          logCallToDb('incoming', call.metadata?.isVideo || false);
         });
         peerInstance.current = peer;
       });
     }
-  }, [appState, currentUser, studentId]);
+  }, [appState, currentUser, studentId, activeChannel, targetNode]);
 
   const startCall = async (isVideo) => {
     try {
       if (!peerInstance.current) throw new Error("Network not ready yet. Please wait a second.");
-      
-      if (peerInstance.current.destroyed) {
-        throw new Error("Connection lost. Please Log out and Log back in.");
-      }
-
-      if (peerInstance.current.disconnected) {
-        peerInstance.current.reconnect();
-      }
+      if (peerInstance.current.destroyed) throw new Error("Connection lost. Please Log out and Log back in.");
+      if (peerInstance.current.disconnected) peerInstance.current.reconnect();
 
       const isVideoReq = isVideo === true;
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
@@ -230,7 +448,8 @@ export default function Home() {
       setCallState("ON_CALL");
 
       const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo: isVideoReq } });
-      
+      logCallToDb('outgoing', isVideoReq);
+
       if (!call) throw new Error("Partner is offline or network is busy.");
       currentCall.current = call;
 
@@ -312,10 +531,9 @@ export default function Home() {
     }
   };
 
-  // 🔥 MULTI-USER REACTION LOGIC
   const handleReaction = (msgId, emoji) => {
     setMessages(prev => prev.map(m => {
-      if (m.id === msgId || m._id === msgId) {
+      if (String(m.id) === String(msgId) || String(m._id) === String(msgId)) {
          const newReactions = { ...(m.reactions || {}) };
          if (emoji) newReactions.me = emoji;
          else delete newReactions.me;
@@ -327,13 +545,68 @@ export default function Home() {
     fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
   };
 
+  const handleMessageAction = async (msgId, action, extraPayload) => {
+    const idStr = String(msgId);
+    const targetMsg = messages.find(m => String(m._id) === idStr || String(m.id) === idStr);
+    const dbId = targetMsg && targetMsg._id ? String(targetMsg._id) : idStr;
+
+    if (action === "DELETE_ME") {
+      setMessages(prev => prev.filter(m => String(m.id) !== idStr && String(m._id) !== idStr));
+      await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "DELETE_ME", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel })
+      }).catch(() => {});
+    } 
+    else if (action === "DELETE_EVERYONE") {
+      const deletedText = "🚫 This message was deleted";
+      const deletedEncryptedText = CryptoJS.AES.encrypt(deletedText, SECRET_KEY).toString();
+
+      setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isDeleted: true, text: deletedText } : m));
+
+      await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "DELETE_EVERYONE", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, deletedEncryptedText })
+      }).catch(() => {});
+
+      const pingText = CryptoJS.AES.encrypt(`SYS_DEL_MSG::${dbId}`, SECRET_KEY).toString();
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+    } 
+    else if (action === "PIN") {
+      const pinnedUntil = extraPayload ? Date.now() + extraPayload : null;
+      setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isPinned: true, pinnedUntil } : m));
+
+      await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "PIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, pinnedUntil })
+      }).catch(() => {});
+
+      const pingText = CryptoJS.AES.encrypt(`SYS_PIN_MSG::${dbId}::${pinnedUntil || 'forever'}`, SECRET_KEY).toString();
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+    }
+    else if (action === "UNPIN") {
+      setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isPinned: false, pinnedUntil: null } : m));
+
+      await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "UNPIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel })
+      }).catch(() => {});
+
+      const pingText = CryptoJS.AES.encrypt(`SYS_UNPIN_MSG::${dbId}`, SECRET_KEY).toString();
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+    }
+  };
+
   useEffect(() => {
     if (appState === "CHAT" || appState === "SNAP_MODE" || appState === "SCRIBBLE_MODE" || appState === "CUSTOM_PING") {
       window.history.pushState(null, null, window.location.href);
-      const handlePopState = () => setAppState("MODE_SELECTION");
+      const handlePopState = () => setAppState("WHATSAPP_UI"); 
       window.addEventListener("popstate", handlePopState);
       return () => window.removeEventListener("popstate", handlePopState);
-    } else if (appState === "MODE_SELECTION") {
+    } else if (appState === "WHATSAPP_UI" || appState === "MODE_SELECTION") {
       window.history.pushState(null, null, window.location.href);
       const handlePopState = () => handleLogout();
       window.addEventListener("popstate", handlePopState);
@@ -373,6 +646,8 @@ export default function Home() {
     };
   }, [callState]);
 
+  const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
   useEffect(() => {
     if (appState !== "CHAT" && appState !== "SNAP_MODE") return;
     const interval = setInterval(() => {
@@ -382,7 +657,7 @@ export default function Home() {
         const newMessages = prev.filter((msg) => {
           if (msg.sender === "me" && !msg.seenAt) return true;
           if (msg.seenAt) {
-            const isExpired = (now - msg.seenAt) >= 15000;
+            const isExpired = (now - msg.seenAt) >= SEVEN_DAYS_MS;
             if (isExpired && msg.sender === "them" && msg._id) {
                hasChanges = true;
                fetch("/api/messages/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: msg._id }) }).catch(e => {});
@@ -398,32 +673,86 @@ export default function Home() {
         });
         return hasChanges ? newMessages : prev;
       });
-    }, 1000);
+    }, 10000); 
     return () => clearInterval(interval);
   }, [appState]);
 
-  useEffect(() => {
-    if ((appState === "CHAT" || appState === "SNAP_MODE") && currentUser && activeChannel) {
-      const fetchPendingMessages = async () => {
-        try {
-          const res = await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: studentId.trim() }), });
-          const data = await res.json();
-          if (data.success && data.messages.length > 0) {
-            const fetched = data.messages.map((m) => {
+  // 🔥 FETCH MESSAGES + ROOM-SCOPED PROFILES & STATUSES FROM MONGODB
+  const fetchPendingMessages = async () => {
+    if (!currentUser || !activeChannel || !studentId) return;
+    try {
+      const res = await fetch("/api/messages/fetch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: studentId.trim(),
+          partnerId: targetNode,
+          channel: activeChannel
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        // 1. Update Room-Scoped Profile, Statuses & Call Logs from DB
+        if (data.myProfile) {
+          setProfileImage(data.myProfile.profileImage || "/cat.png");
+          setMyStatuses(Array.isArray(data.myProfile.statuses) ? data.myProfile.statuses : []);
+          setCallLogs(Array.isArray(data.myProfile.callLogs) ? data.myProfile.callLogs : []);
+        }
+        if (data.partnerProfile) {
+          setPartnerImage(data.partnerProfile.profileImage || "/love.png");
+          setPartnerStatuses(Array.isArray(data.partnerProfile.statuses) ? data.partnerProfile.statuses : []);
+        }
+
+        // 2. Update Messages
+        if (Array.isArray(data.messages)) {
+          const myId = studentId.trim().toLowerCase();
+
+          const fetched = data.messages.map((m) => {
+            let decrypted = "";
+            try {
               const bytes = CryptoJS.AES.decrypt(m.encryptedText, SECRET_KEY);
-              const exactTime = m.timeStr || (m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-              return { id: m.id || m._id, _id: m._id, text: bytes.toString(CryptoJS.enc.Utf8), sender: "them", time: exactTime, seenAt: Date.now() };
-            });
-            setMessages((prev) => {
-              const uniqueFetched = fetched.filter(newMsg => !prev.some(p => p.id === newMsg.id || p._id === newMsg._id)); return [...prev, ...uniqueFetched];
-            });
-            fetched.forEach(async (m) => { await fetch("/api/messages/seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id || m._id, channel: activeChannel }) }); });
-          }
-        } catch (error) {}
-      };
+              decrypted = bytes.toString(CryptoJS.enc.Utf8);
+            } catch (e) {}
+
+            const isMe = String(m.senderId).trim().toLowerCase() === myId;
+            const exactTime = m.timeStr || (m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const isDel = Boolean(m.isDeleted) || decrypted === "🚫 This message was deleted";
+
+            return {
+              id: m._id,
+              _id: m._id,
+              text: isDel ? "🚫 This message was deleted" : decrypted,
+              sender: isMe ? "me" : "them",
+              time: exactTime,
+              seenAt: m.seenAt ? new Date(m.seenAt).getTime() : (!isMe ? Date.now() : null),
+              isDeleted: isDel,
+              isPinned: Boolean(m.isPinned),
+              pinnedUntil: m.pinnedUntil ? new Date(m.pinnedUntil).getTime() : null
+            };
+          }).filter(item => item.text && !item.text.startsWith("SYS_"));
+
+          setMessages(fetched);
+
+          data.messages.forEach(async (m) => {
+            const isMe = String(m.senderId).trim().toLowerCase() === myId;
+            if (!isMe && !m.seenAt) {
+              await fetch("/api/messages/seen", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: m._id, channel: activeChannel })
+              }).catch(() => {});
+            }
+          });
+        }
+      }
+    } catch (error) {}
+  };
+
+  useEffect(() => {
+    if ((appState === "CHAT" || appState === "SNAP_MODE" || appState === "WHATSAPP_UI" || appState === "MODE_SELECTION") && currentUser && activeChannel) {
       fetchPendingMessages();
     }
-  }, [appState, currentUser, activeChannel]);
+  }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
   useEffect(() => {
     let stream = null;
@@ -444,6 +773,14 @@ export default function Home() {
 
   const handleLogin = async (e) => {
     e.preventDefault(); setIsLoggingIn(true); setError("");
+    // Reset state before loading new user/room data
+    setProfileImage("/cat.png");
+    setPartnerImage("/love.png");
+    setMyStatuses([]);
+    setPartnerStatuses([]);
+    setCallLogs([]);
+    setMessages([]);
+
     try {
       const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: studentId.trim(), pin: password }) });
       const data = await res.json();
@@ -455,14 +792,15 @@ export default function Home() {
           if (nodeData.success) { setTargetNode(nodeData.partner); setActiveChannel(nodeData.nodeName); }
           else { setError("No active communication node found."); setIsLoggingIn(false); return; }
         } catch (e) {}
-        setAppState("MODE_SELECTION");
+        
+        setAppState("WHATSAPP_UI"); 
         await registerServiceWorkerAndSubscribe();
       } else { setError("Invalid University ID or PIN."); }
     } catch (err) { setError("Network error."); } finally { setIsLoggingIn(false); }
   };
 
   useEffect(() => {
-    if ((appState !== "CHAT" && appState !== "SNAP_MODE" && appState !== "SCRIBBLE_MODE" && appState !== "CUSTOM_PING") || !currentUser || !activeChannel) return;
+    if ((appState !== "CHAT" && appState !== "SNAP_MODE" && appState !== "SCRIBBLE_MODE" && appState !== "CUSTOM_PING" && appState !== "WHATSAPP_UI" && appState !== "MODE_SELECTION") || !currentUser || !activeChannel) return;
     setIsPeerActive(false); setIsPeerTyping(false);
 
     const pusher = new PusherJS(process.env.NEXT_PUBLIC_PUSHER_KEY, { cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER });
@@ -485,11 +823,37 @@ export default function Home() {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY);
         const text = bytes.toString(CryptoJS.enc.Utf8);
 
+        // 🔥 REAL-TIME SYNC WHEN PARTNER UPDATES PFP OR STATUS OR VIEWS STATUS
+        if (text === "SYS_PROFILE_SYNC") {
+            fetchPendingMessages();
+            return;
+        }
+
+        if (text.startsWith("SYS_DEL_MSG::")) {
+            const msgIdToDel = text.split("::")[1];
+            setMessages(prev => prev.map(m => (String(m.id) === String(msgIdToDel) || String(m._id) === String(msgIdToDel)) ? { ...m, isDeleted: true, text: "🚫 This message was deleted" } : m));
+            return;
+        }
+
+        if (text.startsWith("SYS_PIN_MSG::")) {
+            const parts = text.split("::");
+            const pinMsgId = parts[1];
+            const pinnedUntil = parts[2] === 'forever' ? null : parseInt(parts[2], 10);
+            setMessages(prev => prev.map(m => (String(m.id) === String(pinMsgId) || String(m._id) === String(pinMsgId)) ? { ...m, isPinned: true, pinnedUntil } : m));
+            return;
+        }
+        
+        if (text.startsWith("SYS_UNPIN_MSG::")) {
+            const unpinMsgId = text.split("::")[1];
+            setMessages(prev => prev.map(m => (String(m.id) === String(unpinMsgId) || String(m._id) === String(unpinMsgId)) ? { ...m, isPinned: false, pinnedUntil: null } : m));
+            return;
+        }
+
         if (text.startsWith("SYS_CUSTOM_PING::")) {
             const alertMsg = text.substring("SYS_CUSTOM_PING::".length);
             if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
             if ("Notification" in window && Notification.permission === "granted") {
-                new Notification(`New Alert from ${studentId.trim() === "UserA" ? "UserB" : "Partner"}`, { body: alertMsg });
+                new Notification(`New Alert from ${targetNode || "Partner"}`, { body: alertMsg });
                 alert(`🔔 Alert from Partner:\n\n${alertMsg}`);
             } else {
                 alert(`🔔 Alert from Partner:\n\n${alertMsg}`);
@@ -502,13 +866,12 @@ export default function Home() {
         if (text === "SYS_MIC_OFF") { setIsRemoteMicMuted(true); return; }
         if (text === "SYS_MIC_ON") { setIsRemoteMicMuted(false); return; }
 
-        // 🔥 MULTI-USER REACTION RECEIVE LOGIC
         if (text.startsWith("SYS_REACT::")) {
            const parts = text.split("::");
            const reactMsgId = parts[1];
            const emoji = parts[2];
            setMessages((prev) => prev.map((m) => {
-             if (m.id == reactMsgId || m._id == reactMsgId) {
+             if (String(m.id) === String(reactMsgId) || String(m._id) === String(reactMsgId)) {
                 const newReactions = { ...(m.reactions || {}) };
                 if (emoji) newReactions.them = emoji;
                 else delete newReactions.them;
@@ -555,16 +918,14 @@ export default function Home() {
 
         if (text) {
           setIsPeerTyping(false);
-          setMessages((prev) => {
-            const msgId = data.id || data._id; if (prev.some(p => p.id === msgId || p._id === msgId)) return prev;
-            setTimeout(() => { fetch("/api/messages/seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: msgId, channel: activeChannel }) }).catch(() => {}); }, 50);
-            return [...prev, { id: msgId || Date.now(), _id: data._id, text, sender: "them", time: data.timeStr || new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), seenAt: Date.now() }];
-          });
+          setTimeout(() => fetchPendingMessages(), 300);
         }
       } catch(e) {}
     });
 
-    channel.bind("message_seen", (data) => { setMessages((prev) => prev.map((msg) => { if (msg.sender === "me" && !msg.seenAt) return { ...msg, seenAt: Date.now() }; return msg; })); });
+    channel.bind("message_seen", () => {
+      setMessages((prev) => prev.map((msg) => { if (msg.sender === "me" && !msg.seenAt) return { ...msg, seenAt: Date.now() }; return msg; }));
+    });
 
     pusher.connection.bind("connected", () => {
       sendHello();
@@ -574,7 +935,7 @@ export default function Home() {
     const pingInterval = setInterval(sendPresencePing, 3000);
 
     return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
-  }, [appState, currentUser, activeChannel, studentId]);
+  }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -590,9 +951,12 @@ export default function Home() {
   const dispatchMessage = async (msgText) => {
     if (!msgText || !targetNode) return;
     const encryptedText = CryptoJS.AES.encrypt(msgText, SECRET_KEY).toString();
-    const tempId = Date.now(); const timeStr = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-    setMessages((prev) => [...prev, { id: tempId, _id: tempId, text: msgText, sender: "me", time: timeStr, seenAt: null }]);
+    const tempId = Date.now();
+    const timeStr = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+
+    setMessages((prev) => [...prev, { id: tempId, _id: tempId, text: msgText, sender: "me", time: timeStr, seenAt: null, isDeleted: false, isPinned: false }]);
     await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tempId, encryptedText, senderId: studentId.trim(), receiverId: targetNode, channel: activeChannel, timeStr }), });
+    setTimeout(() => fetchPendingMessages(), 300);
   };
 
   const handleTextSubmit = (e) => { e.preventDefault(); if (!input.trim()) return; dispatchMessage(input); setInput(""); setShowEmojis(false); inputRef.current?.focus(); };
@@ -768,16 +1132,15 @@ export default function Home() {
   };
 
   const handlePingPartner = async () => {
+    if(isPinging) return;
     setIsPinging(true);
     try {
       const res = await fetch("/api/ping", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sender: studentId.trim(), receiver: targetNode, channel: activeChannel }),
       });
-
       const data = await res.json();
-      if (!data.success) alert("❌ Ping Failed: " + data.error);
+      if (!data.success) alert("❌ Ping Failed");
       setTimeout(() => setIsPinging(false), 3000);
     } catch (error) {
       setIsPinging(false);
@@ -825,112 +1188,32 @@ export default function Home() {
           </motion.div>
         )}
 
-        {appState === "MODE_SELECTION" && (
-          <motion.div
-            key="mode-select"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className={`absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 z-50 overflow-y-auto custom-scrollbar ${isDarkMode ? "bg-[#09090b] text-slate-200" : "bg-slate-50 text-slate-800"}`}
-          >
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 blur-[100px] rounded-full" />
-              <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 blur-[100px] rounded-full" />
-            </div>
-
-            <motion.div initial={{ y: -20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="mb-8 mt-12 text-center z-10">
-              <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-4 shadow-lg border ${isDarkMode ? "bg-[#18181b] border-[#27272a]" : "bg-white border-slate-200"}`}>
-                 <Aperture className={isDarkMode ? "text-blue-400" : "text-blue-600"} size={32} />
-              </div>
-              <h2 className="text-3xl font-bold tracking-tight">Select Interface</h2>
-              <p className="text-slate-500 mt-2 text-sm">Choose your communication module</p>
-            </motion.div>
-
-            <div className="w-full max-w-sm space-y-4 z-10 mb-12">
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setAppState("CHAT")}
-                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-blue-500/50" : "bg-white border-slate-200 hover:border-blue-500/50"}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-500/10 rounded-xl flex items-center justify-center group-hover:bg-blue-500/20 transition-colors">
-                    <MessageSquare className="text-blue-500" size={24} />
-                  </div>
-                  <div className="text-left">
-                    <h3 className="font-semibold text-lg">Secure Chat</h3>
-                    <p className="text-slate-500 text-xs">Encrypted text & media relay</p>
-                  </div>
-                </div>
-                <ChevronRight className="text-slate-500 group-hover:text-blue-500 transition-colors" />
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setAppState("SNAP_MODE")}
-                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-purple-500/50" : "bg-white border-slate-200 hover:border-purple-500/50"}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-purple-500/10 rounded-xl flex items-center justify-center group-hover:bg-purple-500/20 transition-colors">
-                    <Camera className="text-purple-500" size={24} />
-                  </div>
-                  <div className="text-left">
-                    <h3 className="font-semibold text-lg">Snap Module</h3>
-                    <p className="text-slate-500 text-xs">Volatile visual transmission</p>
-                  </div>
-                </div>
-                <ChevronRight className="text-slate-500 group-hover:text-purple-500 transition-colors" />
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setAppState("SCRIBBLE_MODE")}
-                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-green-500/50" : "bg-white border-slate-200 hover:border-green-500/50"}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-green-500/10 rounded-xl flex items-center justify-center group-hover:bg-green-500/20 transition-colors">
-                    <Palette className="text-green-500" size={24} />
-                  </div>
-                  <div className="text-left">
-                    <h3 className="font-semibold text-lg">Scribble Game</h3>
-                    <p className="text-slate-500 text-xs">Live drawing & guessing</p>
-                  </div>
-                </div>
-                <ChevronRight className="text-slate-500 group-hover:text-green-500 transition-colors" />
-              </motion.button>
-
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setAppState("CUSTOM_PING")}
-                className={`w-full flex items-center justify-between p-5 backdrop-blur-xl border rounded-2xl transition-all group shadow-xl ${isDarkMode ? "bg-[#18181b]/80 border-[#27272a] hover:border-amber-500/50" : "bg-white border-slate-200 hover:border-amber-500/50"}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-amber-500/10 rounded-xl flex items-center justify-center group-hover:bg-amber-500/20 transition-colors">
-                    <BellRing className="text-amber-500" size={24} />
-                  </div>
-                  <div className="text-left">
-                    <h3 className="font-semibold text-lg">Custom Alert</h3>
-                    <p className="text-slate-500 text-xs">Send targeted notifications</p>
-                  </div>
-                </div>
-                <ChevronRight className="text-slate-500 group-hover:text-amber-500 transition-colors" />
-              </motion.button>
-            </div>
-          </motion.div>
+        {(appState === "WHATSAPP_UI" || appState === "MODE_SELECTION") && (
+          <WhatsAppUI 
+             setAppState={setAppState}
+             targetNode={targetNode}
+             isDarkMode={isDarkMode}
+             setIsDarkMode={setIsDarkMode}
+             isLoveMode={isLoveMode}
+             setIsLoveMode={setIsLoveMode}
+             profileImage={profileImage}
+             partnerImage={partnerImage}
+             messages={messages}
+             callLogs={callLogs}
+             myStatuses={myStatuses}
+             partnerStatuses={partnerStatuses}
+             onUploadProfileImage={handleUploadProfileImage}
+             onAddStatus={handleAddStatus}
+             onDeleteStatus={handleDeleteStatus}
+             onViewPartnerStatus={handleViewPartnerStatus}
+             onDeleteCallLog={handleDeleteCallLog}
+             isSavingMedia={isSavingMedia}
+             ignorePanicRef={ignorePanicRef}
+          />
         )}
 
         {appState === "CUSTOM_PING" && (
-          <CustomPing
-            setAppState={setAppState}
-            studentId={studentId}
-            targetNode={targetNode}
-            activeChannel={activeChannel}
-            isDarkMode={isDarkMode}
-            isLoveMode={isLoveMode}
-          />
+          <CustomPing setAppState={setAppState} studentId={studentId} targetNode={targetNode} activeChannel={activeChannel} isDarkMode={isDarkMode} isLoveMode={isLoveMode} />
         )}
 
         {appState === "SNAP_MODE" && (
@@ -941,80 +1224,30 @@ export default function Home() {
             exit={{ opacity: 0, y: 50 }}
             className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none"
           >
-            <video
-              ref={snapVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300"
-              style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }}
-            />
+            <video ref={snapVideoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300" style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }} />
 
             <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent z-20">
-               <button onClick={() => setAppState("CHAT")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform">
-                  <X size={24} />
-               </button>
-               <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">
-                  {SNAP_FILTERS[snapFilterIndex].name}
-               </div>
+               <button onClick={() => setAppState("WHATSAPP_UI")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform"><X size={24} /></button>
+               <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">{SNAP_FILTERS[snapFilterIndex].name}</div>
                <div className="w-10"></div>
             </div>
 
             <div className="absolute inset-0 z-10 flex">
-              <div
-                className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-                onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}
-              >
-                 <ChevronLeft className="text-white drop-shadow-lg" size={48} />
-              </div>
-              <div
-                className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer"
-                onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}
-              >
-                 <ChevronRight className="text-white drop-shadow-lg" size={48} />
-              </div>
+              <div className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}><ChevronLeft className="text-white drop-shadow-lg" size={48} /></div>
+              <div className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}><ChevronRight className="text-white drop-shadow-lg" size={48} /></div>
             </div>
 
             <div className="absolute bottom-0 inset-x-0 pb-12 pt-20 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
-               <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md pointer-events-none">
-                  Tap for Photo • Hold for Video
-               </div>
-
-               <button
-                  onPointerDown={handlePointerDown}
-                  onPointerUp={handlePointerUp}
-                  onPointerLeave={handlePointerUp}
-                  onContextMenu={(e) => e.preventDefault()}
-                  style={{ touchAction: 'none' }}
-                  disabled={isSnapping && !isRecording}
-                  className={`relative w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-300 pointer-events-auto select-none ${isRecording ? 'border-rose-500 scale-[1.15]' : 'border-white/80 active:scale-90'}`}
-               >
-                  {isSnapping && !isRecording ? (
-                    <Loader2 className="text-white animate-spin" size={32} />
-                  ) : (
-                    <div className={`transition-all duration-300 ${isRecording ? 'w-8 h-8 bg-rose-500 rounded-md' : 'w-16 h-16 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,0.5)]'}`}></div>
-                  )}
+               <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md pointer-events-none">Tap for Photo • Hold for Video</div>
+               <button onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onContextMenu={(e) => e.preventDefault()} style={{ touchAction: 'none' }} disabled={isSnapping && !isRecording} className={`relative w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-300 pointer-events-auto select-none ${isRecording ? 'border-rose-500 scale-[1.15]' : 'border-white/80 active:scale-90'}`}>
+                  {isSnapping && !isRecording ? <Loader2 className="text-white animate-spin" size={32} /> : <div className={`transition-all duration-300 ${isRecording ? 'w-8 h-8 bg-rose-500 rounded-md' : 'w-16 h-16 bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,0.5)]'}`}></div>}
                </button>
             </div>
           </motion.div>
         )}
 
        {appState === "SCRIBBLE_MODE" && (
-          <ScribbleBoard
-            setAppState={setAppState}
-            studentId={studentId}
-            targetNode={targetNode}
-            isPeerActive={isPeerActive}
-            callState={callState}
-            startCall={startCall}
-            toggleMic={toggleMic}
-            localStream={localStream}
-            isMicMuted={isMicMuted}
-            sendDrawEvent={sendDrawEvent}
-            sendClearEvent={sendClearEvent}
-            answerCall={answerCall}   
-            endCall={endCall}         
-          />
+          <ScribbleBoard setAppState={setAppState} studentId={studentId} targetNode={targetNode} isPeerActive={isPeerActive} callState={callState} startCall={startCall} toggleMic={toggleMic} localStream={localStream} isMicMuted={isMicMuted} sendDrawEvent={sendDrawEvent} sendClearEvent={sendClearEvent} answerCall={answerCall} endCall={endCall} />
         )}
 
         {appState === "CHAT" && (
@@ -1026,67 +1259,35 @@ export default function Home() {
             exit={{ opacity: 0, x: -50 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
-            style={{
-              top: 0,
-              height: '100%',
-              backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'),
-              backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none'
-            }}
+            style={{ top: 0, height: '100%', backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'), backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none' }}
           >
             <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
             <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
 
-            <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} />
+            <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} setAppState={setAppState} setExpandedImage={setExpandedImage} partnerImage={partnerImage} />
 
-            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} />
+            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} handleMessageAction={handleMessageAction} />
 
-            <MessageInput
-              inputRef={inputRef}
-              input={input}
-              setInput={setInput}
-              handleTextSubmit={handleTextSubmit}
-              handleInputChange={handleInputChange}
-              isUploading={isUploading}
-              showEmojis={showEmojis}
-              setShowEmojis={setShowEmojis}
-              cameraInputRef={cameraInputRef}
-              galleryInputRef={galleryInputRef}
-              isDarkMode={isDarkMode}
-              isLoveMode={isLoveMode}
-              ignorePanicRef={ignorePanicRef}
-              scrollToBottom={scrollToBottom}
-              dispatchMessage={dispatchMessage}
-              setAppState={setAppState}
-              replyTo={replyTo}
-              setReplyTo={setReplyTo}
-            />
+            <MessageInput inputRef={inputRef} input={input} setInput={setInput} handleTextSubmit={handleTextSubmit} handleInputChange={handleInputChange} isUploading={isUploading} showEmojis={showEmojis} setShowEmojis={setShowEmojis} cameraInputRef={cameraInputRef} galleryInputRef={galleryInputRef} isDarkMode={isDarkMode} isLoveMode={isLoveMode} ignorePanicRef={ignorePanicRef} scrollToBottom={scrollToBottom} dispatchMessage={dispatchMessage} setAppState={setAppState} replyTo={replyTo} setReplyTo={setReplyTo} />
 
-            <CallOverlay
-              callState={callState}
-              isVideoCall={isVideoCall}
-              localStream={localStream}
-              remoteStream={remoteStream}
-              answerCall={answerCall}
-              rejectCall={rejectCall}
-              endCall={endCall}
-              isMicMuted={isMicMuted}
-              isVideoMuted={isVideoMuted}
-              toggleMic={toggleMic}
-              toggleVideo={toggleVideo}
-              isRemoteVideoMuted={isRemoteVideoMuted}
-              isRemoteMicMuted={isRemoteMicMuted} 
-              isCallMinimized={isCallMinimized}
-              setIsCallMinimized={setIsCallMinimized}
-              SNAP_FILTERS={SNAP_FILTERS}
-              localFilter={localFilter}
-              setLocalFilter={(newFilterIndex) => {
-                 setLocalFilter(newFilterIndex);
-                 const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString();
-                 fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
-              }}
-              remoteFilter={remoteFilter}
-            />
+            <CallOverlay callState={callState} isVideoCall={isVideoCall} localStream={localStream} remoteStream={remoteStream} answerCall={answerCall} rejectCall={rejectCall} endCall={endCall} isMicMuted={isMicMuted} isVideoMuted={isVideoMuted} toggleMic={toggleMic} toggleVideo={toggleVideo} isRemoteVideoMuted={isRemoteVideoMuted} isRemoteMicMuted={isRemoteMicMuted} isCallMinimized={isCallMinimized} setIsCallMinimized={setIsCallMinimized} SNAP_FILTERS={SNAP_FILTERS} localFilter={localFilter} setLocalFilter={(newFilterIndex) => { setLocalFilter(newFilterIndex); const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString(); fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {}); }} remoteFilter={remoteFilter} />
           </motion.div>
+        )}
+
+        {/* EXPANDED IMAGE VIEWER */}
+        {expandedImage && (
+           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setExpandedImage(null)} className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
+              {expandedImage.type === 'video' ? (
+                 <video src={expandedImage.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
+              ) : (
+                 <img src={expandedImage.url} alt="Expanded" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+              )}
+              {expandedImage.caption && (
+                 <motion.p initial={{y: 20, opacity: 0}} animate={{y: 0, opacity: 1}} className="text-white mt-6 text-base md:text-lg font-medium bg-white/10 backdrop-blur-md px-6 py-3 rounded-2xl shadow-lg max-w-sm text-center" onClick={(e) => e.stopPropagation()}>
+                    {expandedImage.caption}
+                 </motion.p>
+              )}
+           </motion.div>
         )}
 
       </AnimatePresence>

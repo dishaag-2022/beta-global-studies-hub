@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { connectToDatabase } from "../../../../lib/mongodb"; 
+import Message from "../../../../models/Message";
 import Pusher from "pusher";
 
 const pusher = new Pusher({
@@ -11,9 +13,13 @@ const pusher = new Pusher({
 
 export async function POST(req) {
   try {
+    await connectToDatabase();
     const { id, channel } = await req.json();
     
-    // Sender ko signal bhej do ki message dekh liya gaya hai
+    if (id) {
+      await Message.findByIdAndUpdate(id, { $set: { seenAt: new Date() } }).catch(() => {});
+    }
+    
     await pusher.trigger(channel, "message_seen", { id: id });
 
     return NextResponse.json({ success: true });

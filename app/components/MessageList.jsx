@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCheck, Play } from 'lucide-react';
+import { CheckCheck, Play, Pin, Trash2, XCircle, X, Clock } from 'lucide-react';
 
+// 🔥 ZERO-LAG CSS FLOATING HEARTS
 const FloatingHearts = () => {
   const [hearts, setHearts] = useState([]);
   useEffect(() => {
@@ -25,8 +26,8 @@ const FloatingHearts = () => {
         }
         .css-heart { 
           position: absolute; 
-          top: 100%;
-          opacity: 0;
+          top: 100%; 
+          opacity: 0; 
           animation: floatUp linear infinite; 
         }
       `}</style>
@@ -58,14 +59,16 @@ const SendBurst = () => {
 
 const MessageBubble = ({ 
   msg, isMe, showAvatar, isDarkMode, isLoveMode, 
-  setExpandedImage, setReplyTo, handleReaction,
-  activeReactionMsg, setActiveReactionMsg 
+  setExpandedImage, setReplyTo, handleReaction, handleMessageAction,
+  activeReactionMsg, setActiveReactionMsg, setPinModalMsg, highlightedMsgId
 }) => {
   const pressTimer = useRef(null);
+  const msgKey = String(msg._id || msg.id);
 
   const startPress = () => {
+    if (msg.isDeleted) return;
     pressTimer.current = setTimeout(() => {
-      setActiveReactionMsg(msg.id || msg._id);
+      setActiveReactionMsg(msgKey);
       if (navigator.vibrate) navigator.vibrate(50);
     }, 400); 
   };
@@ -74,20 +77,20 @@ const MessageBubble = ({
     clearTimeout(pressTimer.current);
   };
 
-  let content = msg.text;
+  let content = msg.isDeleted ? "🚫 This message was deleted" : (msg.text || "");
   let isReply = false;
   let originalText = "";
   
-  if (content.startsWith("RPL_SYS|||")) {
+  if (!msg.isDeleted && content.includes("RPL_SYS|||")) {
      const parts = content.split("|||");
-     originalText = parts[1];
-     content = parts[2];
+     content = parts.pop() || "";       
+     originalText = parts.pop() || "";  
      isReply = true;
   }
 
-  const isImage = content.startsWith("IMG_SYS::");
-  const isVideo = content.startsWith("VID_SYS::");
-  const isSticker = content.startsWith("STK_SYS::"); 
+  const isImage = !msg.isDeleted && content.startsWith("IMG_SYS::");
+  const isVideo = !msg.isDeleted && content.startsWith("VID_SYS::");
+  const isSticker = !msg.isDeleted && content.startsWith("STK_SYS::"); 
   const isMedia = isImage || isVideo || isSticker;
   
   const parts = isMedia ? content.split("::") : [];
@@ -96,77 +99,124 @@ const MessageBubble = ({
   if (isVideo && mediaUrl && mediaUrl.includes('/upload/')) mediaUrl = mediaUrl.replace('/upload/', '/upload/f_mp4,vc_auto,q_auto/');
   
   const igRegex = /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:p|reel|reels)\/([a-zA-Z0-9_-]+)/i;
-  const igMatch = !isMedia ? content.match(igRegex) : null;
+  const igMatch = !isMedia && !msg.isDeleted ? content.match(igRegex) : null;
   const igEmbedUrl = igMatch ? `https://www.instagram.com/p/${igMatch[1]}/embed` : null;
 
   const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i;
-  const ytMatch = !isMedia ? content.match(ytRegex) : null;
+  const ytMatch = !isMedia && !msg.isDeleted ? content.match(ytRegex) : null;
   const ytEmbedUrl = ytMatch ? `https://www.youtube.com/embed/${ytMatch[1]}` : null;
 
-  const isNewMessage = Date.now() - msg.id < 2000; 
+  const isNewMessage = Date.now() - Number(msg.id) < 2000; 
+  const isHighlighted = highlightedMsgId === msgKey;
 
-  const myBubbleStyle = isLoveMode 
-    ? "bg-gradient-to-br from-rose-500 to-pink-500 text-white shadow-sm"
-    : "bg-gradient-to-tr from-blue-500 to-indigo-500 text-white shadow-sm";
-    
-  const theirBubbleStyle = isLoveMode
-    ? (isDarkMode ? "bg-[#2e1018] border border-rose-900/50 text-rose-100 shadow-sm" : "bg-[#fff0f5] border border-rose-200 text-rose-900 shadow-sm")
-    : (isDarkMode ? "bg-[#27272a] text-slate-200 border border-[#3f3f46] shadow-sm" : "bg-white text-slate-800 border-slate-200 shadow-sm border");
-
-  let myReaction = msg.reactions?.me;
-  let theirReaction = msg.reactions?.them;
-
-  if (!msg.reactions && msg.reaction) {
-     theirReaction = msg.reaction; 
-  }
-
-  const reactionCounts = {};
-  if (myReaction) reactionCounts[myReaction] = (reactionCounts[myReaction] || 0) + 1;
-  if (theirReaction) reactionCounts[theirReaction] = (reactionCounts[theirReaction] || 0) + 1;
-  const uniqueEmojis = Object.keys(reactionCounts);
+  const getBubbleStyle = () => {
+    if (isSticker) return { background: "transparent", border: "none", boxShadow: "none", padding: 0 };
+    if (isMe) {
+      return {
+        backgroundColor: isLoveMode ? "#f43f5e" : "#3b82f6",
+        color: "#ffffff",
+        border: isHighlighted ? "2px solid #fbbf24" : (isLoveMode ? "1px solid #fb7185" : "1px solid #60a5fa"),
+        boxShadow: isHighlighted ? "0 0 20px rgba(251, 191, 36, 0.6)" : "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+      };
+    } else {
+      return {
+        backgroundColor: isLoveMode ? "#fdf2f8" : (isDarkMode ? "#27272a" : "#ffffff"),
+        color: isLoveMode ? "#881337" : (isDarkMode ? "#f8fafc" : "#1e293b"),
+        border: isHighlighted ? "2px solid #fbbf24" : (isLoveMode ? "1px solid #fbcfe8" : (isDarkMode ? "1px solid #3f3f46" : "1px solid #e2e8f0")),
+        boxShadow: isHighlighted ? "0 0 20px rgba(251, 191, 36, 0.6)" : "0 4px 6px -1px rgba(0, 0, 0, 0.1)"
+      };
+    }
+  };
 
   return (
-    <motion.div layout className={`flex w-full relative z-10 ${isMe ? 'justify-end' : 'justify-start'}`}>
-      
+    <motion.div 
+      id={`msg-${msgKey}`}
+      layout 
+      className={`flex w-full relative z-10 transition-transform duration-300 ${isMe ? 'justify-end' : 'justify-start'} ${msg.isDeleted ? 'opacity-75 italic' : ''} ${isHighlighted ? 'scale-[1.03]' : ''}`}
+    >
       {showAvatar && (
-        <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 mr-2 mt-auto mb-1 flex-shrink-0 overflow-hidden border border-slate-300 dark:border-slate-600 shadow-sm z-10">
+        <div className="w-7 h-7 rounded-full bg-slate-200 mr-2 mt-auto mb-1 flex-shrink-0 overflow-hidden border border-slate-300 shadow-sm z-10">
           <img src={isLoveMode ? "/love.png" : "/cat.png"} alt="avatar" className="w-full h-full object-cover" />
         </div>
       )}
       {!showAvatar && !isMe && <div className="w-9 flex-shrink-0"></div>}
 
-      <div className={`relative group max-w-[85%] sm:max-w-[75%] flex flex-col min-w-0 overflow-visible ${isMe ? 'items-end' : 'items-start'}`}>
+      <div className={`relative group max-w-[85%] sm:max-w-[75%] flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
         
-        {/* REACTION EMOJI MENU */}
+        {/* 🔥 REACTION, PIN DURATION & DELETE MENU */}
         <AnimatePresence>
-          {activeReactionMsg === (msg.id || msg._id) && (
+          {activeReactionMsg === msgKey && (
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.8 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
-              className={`absolute ${isMe ? "right-0" : "left-0"} -top-[52px] rounded-full px-3 py-2 flex gap-3 z-[60] shadow-xl border
-                ${isLoveMode ? "bg-[#2e1018] border-rose-500/40 shadow-rose-500/20" : 
-                  isDarkMode ? "bg-[#27272a] border-[#3f3f46] shadow-black/50" : "bg-white border-slate-200 shadow-slate-200"}
-              `}
+              onClick={(e) => e.stopPropagation()}
+              className={`absolute ${isMe ? "right-0" : "left-0"} -top-[98px] rounded-2xl p-2.5 flex flex-col gap-2 z-[70] shadow-2xl border min-w-[210px]`}
+              style={isLoveMode ? { backgroundColor: "#2e1018", borderColor: "rgba(244,63,94,0.4)" } : (isDarkMode ? { backgroundColor: "#27272a", borderColor: "#3f3f46" } : { backgroundColor: "#ffffff", borderColor: "#e2e8f0" })}
             >
-              {['❤️','😂','😮','😢','😡','👍'].map(emoji => (
-                 <button 
-                   key={emoji} 
-                   className={`text-xl transition-transform hover:scale-125 hover:-translate-y-1 ${myReaction === emoji ? 'bg-black/20 dark:bg-white/20 rounded-full scale-110' : ''}`} 
-                   onClick={(e) => {
-                     e.stopPropagation(); 
-                     handleReaction(msg.id || msg._id, myReaction === emoji ? "" : emoji);
-                     setActiveReactionMsg(null);
-                   }}
-                 >
-                     {emoji}
-                 </button>
-              ))}
+              {/* Emojis */}
+              <div className="flex justify-between gap-2 px-1 border-b border-white/10 pb-2">
+                {['❤️','😂','😮','😢','😡','👍'].map(emoji => (
+                   <button 
+                     key={emoji} 
+                     className={`text-xl transition-transform hover:scale-125 hover:-translate-y-1 ${msg.reactions?.me === emoji ? 'bg-black/20 rounded-full scale-110' : ''}`} 
+                     onClick={(e) => {
+                       e.stopPropagation(); 
+                       handleReaction(msg._id || msg.id, msg.reactions?.me === emoji ? "" : emoji);
+                       setActiveReactionMsg(null);
+                     }}
+                   >
+                       {emoji}
+                   </button>
+                ))}
+              </div>
+              
+              {/* Actions: Pin (opens Time Modal) / Del (Me) / Del (All) */}
+              <div className="flex justify-around items-center gap-3 px-1 pt-0.5 text-xs font-bold">
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      if (msg.isPinned) {
+                        handleMessageAction(msg._id || msg.id, "UNPIN");
+                      } else {
+                        setPinModalMsg(msg); // 🔥 Opens Duration Modal!
+                      }
+                      setActiveReactionMsg(null); 
+                    }} 
+                    className={`flex items-center gap-1 hover:opacity-80 transition-opacity ${msg.isPinned ? 'text-amber-400' : 'text-sky-400'}`}
+                  >
+                      <Pin size={14}/> {msg.isPinned ? "Unpin" : "Pin"}
+                  </button>
+
+                  <button 
+                    onClick={(e) => { 
+                      e.stopPropagation(); 
+                      handleMessageAction(msg._id || msg.id, "DELETE_ME"); 
+                      setActiveReactionMsg(null); 
+                    }} 
+                    className="flex items-center gap-1 text-amber-400 hover:opacity-80 transition-opacity"
+                  >
+                      <Trash2 size={14}/> Del (Me)
+                  </button>
+
+                  {isMe && (
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          handleMessageAction(msg._id || msg.id, "DELETE_EVERYONE"); 
+                          setActiveReactionMsg(null); 
+                        }} 
+                        className="flex items-center gap-1 text-rose-500 hover:opacity-80 transition-opacity"
+                      >
+                          <XCircle size={14}/> Del (All)
+                      </button>
+                  )}
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <div className="relative w-fit max-w-full flex flex-col min-w-0">
+        <div className="relative w-fit flex flex-col">
           <motion.div
             layout 
             drag="x"
@@ -183,35 +233,39 @@ const MessageBubble = ({
             onPointerLeave={cancelPress}
             onContextMenu={(e) => { 
                e.preventDefault(); 
-               setActiveReactionMsg(msg.id || msg._id); 
+               if (!msg.isDeleted) setActiveReactionMsg(msgKey); 
             }} 
             onDoubleClick={(e) => { 
               e.stopPropagation(); 
-              handleReaction(msg.id || msg._id, myReaction === '❤️' ? "" : '❤️'); 
+              if (msg.isDeleted) return;
+              handleReaction(msg._id || msg.id, msg.reactions?.me === '❤️' ? "" : '❤️'); 
               if (navigator.vibrate) navigator.vibrate(50);
             }}
             onClick={(e) => e.stopPropagation()}
             initial={{ opacity: 0, y: 5, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            className={`relative px-4 py-2 shadow-sm cursor-pointer select-none flex flex-col text-left text-[15px] leading-snug w-fit max-w-full break-words min-w-0
-              ${isSticker ? "bg-transparent shadow-none p-0" : 
-                 (isMe 
-                    ? `${myBubbleStyle} rounded-2xl rounded-tr-sm`
-                    : `${theirBubbleStyle} rounded-2xl rounded-tl-sm`
-                 )}
-            `}
+            style={getBubbleStyle()}
+            className={`relative px-4 py-2.5 cursor-pointer select-none flex flex-col text-left text-[15px] leading-snug w-fit break-words ${isSticker ? '' : (isMe ? 'rounded-2xl rounded-br-[3px]' : 'rounded-2xl rounded-bl-[3px]')}`}
           >
+            {msg.isPinned && (
+               <Pin size={13} className="absolute -top-1.5 -right-1.5 text-amber-400 fill-amber-400 bg-black rounded-full p-[2px] shadow-md z-20" />
+            )}
+
             {isMe && isLoveMode && isNewMessage && <SendBurst />}
 
             {isReply && (
-               <div className={`mb-1 mt-0.5 p-1.5 rounded-lg border-l-4 text-[12px] leading-tight flex flex-col min-w-0 w-full
-                  ${isMe ? "bg-black/15 border-white/60 text-white/95" : 
-                           isLoveMode ? "bg-black/10 border-rose-400 text-rose-800 dark:text-rose-200" :
-                           isDarkMode ? "bg-white/5 border-indigo-400 text-slate-300" : 
-                                        "bg-black/5 border-indigo-500 text-slate-600"}`}>
+               <div className="mb-1 mt-0.5 p-1.5 rounded-lg border-l-4 text-[12px] leading-tight flex flex-col truncate"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.1)",
+                    borderColor: isMe ? "rgba(255,255,255,0.6)" : (isLoveMode ? "#fb7185" : "#60a5fa"),
+                    color: "inherit"
+                  }}>
                   <span className="font-bold mb-0.5 opacity-80 text-[10px]">{isMe ? "You" : "Partner"}</span>
-                  <span className="line-clamp-3 text-ellipsis overflow-hidden whitespace-normal break-words min-w-0 w-full">
-                     {originalText.startsWith("IMG_SYS") ? "📷 Photo" : originalText.startsWith("VID_SYS") ? "🎥 Video" : originalText.startsWith("STK_SYS") ? "✨ Sticker" : originalText.split("|||").pop()}
+                  <span className="truncate opacity-90">
+                     {originalText.startsWith("IMG_SYS") ? "📷 Photo" : 
+                      originalText.startsWith("VID_SYS") ? "🎥 Video" : 
+                      originalText.startsWith("STK_SYS") ? "✨ Sticker" : 
+                      originalText}
                   </span>
                </div>
             )}
@@ -219,7 +273,7 @@ const MessageBubble = ({
             {isSticker ? (
                 <img src={mediaUrl} alt="Sticker" className={`relative z-10 w-32 h-32 object-contain pointer-events-none drop-shadow-lg ${isLoveMode ? 'filter saturate-150 contrast-110' : ''}`} />
             ) : isImage ? (
-               <img src={mediaUrl} alt="Photo" onClick={(e) => { e.stopPropagation(); setExpandedImage({ url: mediaUrl, type: 'image' }); }} className={`relative z-10 max-w-[220px] sm:max-w-[260px] rounded-lg cursor-pointer active:opacity-80 transition-opacity mt-0.5 ${isLoveMode ? 'shadow-sm' : ''}`} />
+               <img src={mediaUrl} alt="Photo" onClick={(e) => { e.stopPropagation(); setExpandedImage({ url: mediaUrl, type: 'image' }); }} className="relative z-10 max-w-[220px] sm:max-w-[260px] rounded-lg cursor-pointer active:opacity-80 transition-opacity mt-0.5" />
             ) : isVideo ? (
                <div className="relative z-10 cursor-pointer group rounded-lg overflow-hidden mt-0.5" onClick={(e) => { e.stopPropagation(); setExpandedImage({ url: mediaUrl, type: 'video' }); }}>
                  <video src={mediaUrl} preload="auto" className="min-h-[180px] w-[220px] bg-black/20 object-cover pointer-events-none" />
@@ -227,17 +281,17 @@ const MessageBubble = ({
                </div>
             ) : (
                <div className="relative z-10 flex flex-col">
-                 <span className={`whitespace-pre-wrap break-words ${isLoveMode && !isMe ? "drop-shadow-[0_0_2px_rgba(255,200,200,0.3)]" : ""}`}>
+                 <span className={`whitespace-pre-wrap break-words font-medium ${msg.isDeleted ? 'italic opacity-90' : ''}`}>
                    {content}
                  </span>
                  
                  {igEmbedUrl && (
-                   <div className={`mt-2 w-[240px] sm:w-[300px] h-[400px] rounded-xl overflow-hidden border ${isLoveMode ? "bg-[#2e1018] border-rose-900/50" : isDarkMode ? "bg-black border-[#3f3f46]" : "bg-white border-slate-200"}`}>
+                   <div className="mt-2 w-[240px] sm:w-[300px] h-[400px] rounded-xl overflow-hidden border bg-black border-[#3f3f46]">
                       <iframe src={igEmbedUrl} className="w-full h-full border-none" scrolling="no" allowTransparency="true"></iframe>
                    </div>
                  )}
                  {ytEmbedUrl && (
-                   <div className={`mt-2 w-[240px] sm:w-[300px] aspect-video rounded-xl overflow-hidden border shadow-sm ${isLoveMode ? "bg-[#2e1018] border-rose-900/50" : isDarkMode ? "bg-black border-[#3f3f46]" : "bg-white border-slate-200"}`}>
+                   <div className="mt-2 w-[240px] sm:w-[300px] aspect-video rounded-xl overflow-hidden border shadow-sm bg-black border-[#3f3f46]">
                       <iframe src={ytEmbedUrl} className="w-full h-full border-none" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
                    </div>
                  )}
@@ -246,47 +300,36 @@ const MessageBubble = ({
           </motion.div>
 
           <AnimatePresence>
-            {uniqueEmojis.length > 0 && (
-              <motion.div 
+            {msg.reactions && (msg.reactions.me || msg.reactions.them) && (
+              <motion.button 
                 layout
                 initial={{scale:0}} animate={{scale:1}} exit={{scale:0}}
-                className={`absolute -bottom-3 ${isMe ? "left-0 -ml-2" : "right-0 -mr-2"} flex items-center gap-0.5 p-0.5 px-1.5 rounded-full shadow-sm z-30 border
-                  ${isLoveMode ? "bg-[#3f0f1f] border-rose-500/40" : 
-                    isDarkMode ? "bg-[#27272a] border-[#3f3f46]" : "bg-white border-slate-200"}`}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  handleReaction(msg._id || msg.id, ""); 
+                  if (navigator.vibrate) navigator.vibrate(30);
+                }}
+                className={`absolute -bottom-3 ${isMe ? "left-0 -ml-2" : "right-0 -mr-2"} px-1.5 h-[24px] flex items-center justify-center rounded-full shadow-sm z-30 border transition-transform hover:scale-110 active:scale-90`}
+                style={isLoveMode ? { backgroundColor: "#881337", borderColor: "#f43f5e", color: "#fff" } : (isDarkMode ? { backgroundColor: "#27272a", borderColor: "#3f3f46", color: "#fff" } : { backgroundColor: "#ffffff", borderColor: "#e2e8f0", color: "#000" })}
               >
-                 {uniqueEmojis.map(emoji => {
-                   const count = reactionCounts[emoji];
-                   const didIReactWithThis = myReaction === emoji;
-                   return (
-                     <button
-                       key={emoji}
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         handleReaction(msg.id || msg._id, didIReactWithThis ? "" : emoji);
-                         if (navigator.vibrate) navigator.vibrate(30);
-                       }}
-                       className={`flex items-center justify-center rounded-full px-1 py-0.5 transition-transform hover:scale-110 active:scale-90 ${didIReactWithThis ? "bg-black/10 dark:bg-white/10" : ""}`}
-                     >
-                       <span className="text-[12px] leading-none drop-shadow-sm">{emoji}</span>
-                       {count > 1 && <span className={`text-[10px] leading-none ml-1 font-bold ${isLoveMode ? 'text-rose-300' : isDarkMode ? 'text-slate-300' : 'text-slate-600'}`}>{count}</span>}
-                     </button>
-                   )
-                 })}
-              </motion.div>
+                 <span className="text-[12px] leading-none drop-shadow-sm flex gap-0.5">
+                    {msg.reactions.me && <span>{msg.reactions.me}</span>}
+                    {msg.reactions.them && msg.reactions.them !== msg.reactions.me && <span>{msg.reactions.them}</span>}
+                 </span>
+              </motion.button>
             )}
           </AnimatePresence>
         </div>
 
         {!isSticker && (
-          <div className={`flex items-center gap-1 mt-1 text-[10.5px] font-medium tracking-wide
-            ${isLoveMode ? "text-rose-300/80" : isDarkMode ? "text-slate-400" : "text-slate-500"} 
-          `}>
+          <div className="flex items-center gap-1 mt-1 text-[10.5px] font-bold tracking-wide drop-shadow-[0_1px_1px_rgba(0,0,0,0.8)] text-white/95">
             <span>{msg.time}</span>
             {isMe && (
-               <CheckCheck size={14} strokeWidth={2.5} className={msg.seenAt ? (isLoveMode ? "text-pink-400" : "text-blue-500 dark:text-blue-400") : (isLoveMode ? "text-rose-300/80" : "text-slate-400 dark:text-slate-500")} />
+               <CheckCheck size={14} strokeWidth={2.5} className={msg.seenAt ? (isLoveMode ? "text-white" : "text-blue-300 drop-shadow-md") : "text-white/70"} />
             )}
           </div>
         )}
+
       </div>
     </motion.div>
   );
@@ -295,36 +338,125 @@ const MessageBubble = ({
 export default function MessageList({
   messages, isDarkMode, isLoveMode, expandedImage, setExpandedImage,
   isPeerActive, isPeerTyping, chatContainerRef, bgPatternDark, bgPatternLight, bgPatternLove,
-  setReplyTo, handleReaction
+  setReplyTo, handleReaction, handleMessageAction
 }) {
   const [activeReactionMsg, setActiveReactionMsg] = useState(null);
-  const currentBgPattern = isLoveMode ? bgPatternLove : (isDarkMode ? bgPatternDark : bgPatternLight);
+  const [pinModalMsg, setPinModalMsg] = useState(null);
+  const [highlightedMsgId, setHighlightedMsgId] = useState(null);
 
-  // 🔥 FIX 2: AUTOMATIC SCROLL WATCHER
-  // Jab bhi naya message aayega, chat automatically neeche ghisak jayegi
-  useEffect(() => {
-    if (chatContainerRef.current) {
-      setTimeout(() => {
-        chatContainerRef.current.scrollTo({
-          top: chatContainerRef.current.scrollHeight,
-          behavior: 'smooth'
-        });
-      }, 50);
+  // 🔥 Find latest active pinned message
+  const activePinned = [...messages].reverse().find(m => 
+    m.isPinned && !m.isDeleted && (!m.pinnedUntil || new Date(m.pinnedUntil).getTime() > Date.now())
+  );
+
+  const currentBg = isLoveMode 
+    ? bgPatternLove 
+    : (isDarkMode 
+        ? "linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('/dishaag.png')" 
+        : "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), url('/dishaag.png')");
+
+  const currentSize = isLoveMode ? "180px 180px" : "cover";
+
+  const getPinnedPreview = (text = "") => {
+    let clean = text;
+    if (clean.includes("RPL_SYS|||")) clean = clean.split("|||").pop() || "";
+    if (clean.startsWith("IMG_SYS::")) return "📷 Photo";
+    if (clean.startsWith("VID_SYS::")) return "🎥 Video";
+    if (clean.startsWith("STK_SYS::")) return "✨ Sticker";
+    return clean;
+  };
+
+  const formatRemainingPinTime = (pinnedUntil) => {
+    if (!pinnedUntil) return "Pinned Forever";
+    const diff = new Date(pinnedUntil).getTime() - Date.now();
+    if (diff <= 0) return "Expired";
+    const hours = Math.ceil(diff / (1000 * 60 * 60));
+    if (hours > 24) return `${Math.ceil(hours / 24)}d left`;
+    return `${hours}h left`;
+  };
+
+  const scrollToPinnedMessage = () => {
+    if (!activePinned) return;
+    const key = String(activePinned._id || activePinned.id);
+    const el = document.getElementById(`msg-${key}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedMsgId(key);
+      setTimeout(() => setHighlightedMsgId(null), 2000);
     }
-  }, [messages, chatContainerRef]);
+  };
 
   return (
-    <div className="relative flex-1 w-full overflow-hidden flex flex-col">
+    <div className="relative flex-1 w-full overflow-hidden flex flex-col" onClick={() => setActiveReactionMsg(null)}>
+      
+      {/* 🔥 100% STICKY PINNED BAR (Outside scroll container so it NEVER scrolls away) */}
+      <AnimatePresence>
+        {activePinned && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="w-full shrink-0 z-40 border-b shadow-lg backdrop-blur-xl cursor-pointer"
+            style={
+              isLoveMode
+                ? { backgroundColor: "rgba(46, 5, 16, 0.95)", borderColor: "rgba(244, 63, 94, 0.4)" }
+                : isDarkMode
+                ? { backgroundColor: "rgba(24, 24, 27, 0.95)", borderColor: "#3f3f46" }
+                : { backgroundColor: "rgba(255, 255, 255, 0.95)", borderColor: "#e2e8f0" }
+            }
+            onClick={scrollToPinnedMessage}
+          >
+            <div className="px-4 py-2.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                  <Pin size={16} className="fill-amber-400" />
+                </div>
+                <div className="flex flex-col min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">
+                      Pinned Message
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-300 flex items-center gap-1">
+                      <Clock size={10} /> {formatRemainingPinTime(activePinned.pinnedUntil)}
+                    </span>
+                  </div>
+                  <span className="text-sm font-semibold truncate text-white/95 mt-0.5">
+                    {getPinnedPreview(activePinned.text)}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                title="Unpin Message"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleMessageAction(activePinned._id || activePinned.id, "UNPIN");
+                }}
+                className="p-1.5 rounded-full bg-white/10 hover:bg-rose-500/30 text-slate-200 hover:text-rose-300 transition-colors shrink-0"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 🔥 SCROLLABLE CHAT MESSAGES */}
       <div 
         ref={chatContainerRef} 
         className="flex-1 overflow-y-auto p-4 space-y-3.5 z-10 scrollbar-hide relative will-change-scroll w-full scroll-smooth transition-colors duration-500"
-        style={{ backgroundImage: currentBgPattern, backgroundSize: "180px 180px", backgroundColor: "transparent" }}
-        onClick={() => setActiveReactionMsg(null)} 
+        style={{ 
+          backgroundImage: currentBg, 
+          backgroundSize: currentSize, 
+          backgroundPosition: "center",
+          backgroundRepeat: "no-repeat",
+          backgroundColor: "transparent" 
+        }}
       >
-        
         {isLoveMode && <FloatingHearts />}
 
-        <div className="h-14 w-full shrink-0"></div>
+        <div className="h-4 w-full shrink-0"></div>
 
         <AnimatePresence>
           {messages.map((msg, index) => {
@@ -333,7 +465,7 @@ export default function MessageList({
             
             return (
               <MessageBubble 
-                key={msg.id || msg._id || index}
+                key={msg._id || msg.id || index}
                 msg={msg} 
                 isMe={isMe} 
                 showAvatar={showAvatar} 
@@ -342,27 +474,75 @@ export default function MessageList({
                 setExpandedImage={setExpandedImage}
                 setReplyTo={setReplyTo}
                 handleReaction={handleReaction}
+                handleMessageAction={handleMessageAction}
                 activeReactionMsg={activeReactionMsg}
                 setActiveReactionMsg={setActiveReactionMsg}
+                setPinModalMsg={setPinModalMsg}
+                highlightedMsgId={highlightedMsgId}
               />
             );
           })}
         </AnimatePresence>
         
-        {/* 🔥 FIX 3: INCREASED BOTTOM PADDING
-            Ab aakhiri message input box se chipkega nahi, safe distance pe rahega */}
-        <div className="h-12 w-full shrink-0" /> 
+        <div className="h-4 w-full shrink-0" />
       </div>
 
+      {/* 🔥 PIN DURATION SELECTION MODAL (24 Hours / 7 Days / Forever) */}
       <AnimatePresence>
-        {expandedImage && (
-           <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setExpandedImage(null)} className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-4 backdrop-blur-sm">
-              {expandedImage.type === 'video' ? (
-                 <video src={expandedImage.url} controls autoPlay className="max-w-full max-h-full rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
-              ) : (
-                 <img src={expandedImage.url} alt="Expanded" className="max-w-full max-h-full rounded-2xl shadow-2xl" />
-              )}
-           </motion.div>
+        {pinModalMsg && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            exit={{ opacity: 0 }} 
+            onClick={() => setPinModalMsg(null)}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }} 
+              animate={{ scale: 1, y: 0 }} 
+              exit={{ scale: 0.9, y: 20 }} 
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-xs rounded-3xl p-6 shadow-2xl border"
+              style={
+                isLoveMode
+                  ? { backgroundColor: "#2e0510", borderColor: "rgba(244,63,94,0.5)", color: "#fff" }
+                  : { backgroundColor: "#18181b", borderColor: "#3f3f46", color: "#fff" }
+              }
+            >
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-extrabold flex items-center gap-2 text-amber-400">
+                  <Pin size={18} /> Choose Pin Duration
+                </h3>
+                <button onClick={() => setPinModalMsg(null)} className="p-1.5 rounded-full bg-white/10 text-white">
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="text-xs text-slate-300 mb-5">
+                How long do you want to keep this message pinned at the top? You can unpin it anytime.
+              </p>
+
+              <div className="space-y-2.5">
+                {[
+                  { label: "24 Hours", ms: 24 * 60 * 60 * 1000 },
+                  { label: "7 Days", ms: 7 * 24 * 60 * 60 * 1000 },
+                  { label: "Forever (Always)", ms: null }
+                ].map((opt, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      handleMessageAction(pinModalMsg._id || pinModalMsg.id, "PIN", opt.ms);
+                      setPinModalMsg(null);
+                    }}
+                    className="w-full text-left px-4 py-3.5 rounded-2xl font-bold text-sm bg-white/10 hover:bg-amber-500/20 hover:text-amber-300 border border-white/10 transition-all active:scale-95 flex justify-between items-center"
+                  >
+                    <span>{opt.label}</span>
+                    <Pin size={14} className="opacity-60" />
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
@@ -370,8 +550,9 @@ export default function MessageList({
         <AnimatePresence>
           {isPeerTyping && (
              <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} transition={{ type: "spring", stiffness: 200, damping: 25 }} className="relative flex flex-col items-start z-10">
-               <div className={`shadow-sm rounded-full px-4 py-2 flex items-center justify-center z-20 border transition-colors duration-300 ${isLoveMode ? "bg-[#2e1018]/90 backdrop-blur-sm border-rose-500/50 shadow-[0_0_15px_rgba(225,29,72,0.3)]" : isDarkMode ? "bg-[#27272a] border-[#3f3f46]" : "bg-white border-slate-100"}`}>
-                 <span className={`flex gap-1 font-black text-xl leading-none pb-1 ${isLoveMode ? "text-pink-400 drop-shadow-[0_0_5px_rgba(244,114,182,0.6)]" : "text-indigo-500"}`}>
+               <div className={`shadow-sm rounded-full px-4 py-2 flex items-center justify-center z-20 border transition-colors duration-300`}
+                 style={isLoveMode ? { backgroundColor: "rgba(46,16,24,0.9)", borderColor: "rgba(244,63,94,0.5)" } : (isDarkMode ? { backgroundColor: "rgba(39,39,42,0.8)", borderColor: "#3f3f46" } : { backgroundColor: "rgba(255,255,255,0.9)", borderColor: "rgba(255,255,255,0.5)" })}>
+                 <span className={`flex gap-1 font-black text-xl leading-none pb-1 ${isLoveMode ? "text-pink-400 drop-shadow-[0_0_5px_rgba(244,114,182,0.6)]" : "text-indigo-400 drop-shadow-sm"}`}>
                    <span className="animate-bounce">.</span>
                    <span className="animate-bounce" style={{animationDelay: '120ms'}}>.</span>
                    <span className="animate-bounce" style={{animationDelay: '240ms'}}>.</span>
