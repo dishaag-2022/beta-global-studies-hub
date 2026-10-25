@@ -13,6 +13,7 @@ import CallOverlay from "./components/CallOverlay";
 import ScribbleBoard from "./components/ScribbleBoard";
 import CustomPing from "./components/CustomPing";
 import WhatsAppUI from "./components/WhatsAppUI";
+import AnniversaryPopup from "./components/AnniversaryPopup";
 
 const SECRET_KEY = "tour-404-classified-key";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -28,7 +29,6 @@ const SNAP_FILTERS = [
   { name: "Thermal", filter: "invert(1) hue-rotate(180deg)" },
 ];
 
-// 🔥 Helper: Compress image for fast DB storage if Cloudinary isn't used
 const compressImageToBase64 = (file, maxWidth = 600, quality = 0.75) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -63,9 +63,11 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [isLoveMode, setIsLoveMode] = useState(false); 
+  
+  const [isLoveMode, setIsLoveMode] = useState(true); 
+  const [surpriseRevealed, setSurpriseRevealed] = useState(false);
+  const [isFetchingChat, setIsFetchingChat] = useState(true);
 
-  // 🔥 DB-BACKED PER-ROOM PROFILE & STATUS STATES
   const [profileImage, setProfileImage] = useState("/cat.png");
   const [partnerImage, setPartnerImage] = useState("/love.png");
   const [callLogs, setCallLogs] = useState([]);
@@ -120,7 +122,6 @@ export default function Home() {
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
 
-  // Clear old legacy localStorage keys so old PFPs/statuses never leak across rooms
   useEffect(() => {
     try {
       localStorage.removeItem("myProfileImage");
@@ -132,7 +133,6 @@ export default function Home() {
     } catch (e) {}
   }, []);
 
-  // Upload helper: Tries Cloudinary first, falls back to compressed Base64 for MongoDB
   const uploadOrCompressImage = async (file) => {
     if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_UPLOAD_PRESET && file) {
       try {
@@ -150,62 +150,35 @@ export default function Home() {
     return await compressImageToBase64(file);
   };
 
-  // 🔥 DB HANDLER: Upload & Save Profile Picture
   const handleUploadProfileImage = async (file) => {
     if (!file || !studentId || !activeChannel) return;
     setIsSavingMedia(true);
     try {
       const imgUrl = await uploadOrCompressImage(file);
       setProfileImage(imgUrl);
-
       await fetch("/api/messages/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "UPDATE_PROFILE_IMAGE",
-          userId: studentId.trim(),
-          partnerId: targetNode,
-          channel: activeChannel,
-          profileImage: imgUrl
-        })
+        body: JSON.stringify({ action: "UPDATE_PROFILE_IMAGE", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, profileImage: imgUrl })
       });
-
       const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
-      fetch("/api/pusher", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
-      }).catch(() => {});
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     } catch (e) {
     } finally {
       setIsSavingMedia(false);
     }
   };
 
-  // 🔥 DB HANDLER: Add 24h Status
   const handleAddStatus = async (file, previewBase64, captionText) => {
     if (!studentId || !activeChannel) return;
     setIsSavingMedia(true);
     try {
       const imgUrl = file ? await uploadOrCompressImage(file) : previewBase64;
-      const newStatus = {
-        id: String(Date.now()),
-        image: imgUrl,
-        text: captionText || "",
-        time: Date.now(),
-        seenBy: []
-      };
-
+      const newStatus = { id: String(Date.now()), image: imgUrl, text: captionText || "", time: Date.now(), seenBy: [] };
       const res = await fetch("/api/messages/fetch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "ADD_STATUS",
-          userId: studentId.trim(),
-          partnerId: targetNode,
-          channel: activeChannel,
-          statusItem: newStatus
-        })
+        body: JSON.stringify({ action: "ADD_STATUS", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, statusItem: newStatus })
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.statuses)) {
@@ -213,103 +186,49 @@ export default function Home() {
       } else {
         setMyStatuses(prev => [...prev, newStatus]);
       }
-
       const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
-      fetch("/api/pusher", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
-      }).catch(() => {});
+      fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     } catch (e) {
     } finally {
       setIsSavingMedia(false);
     }
   };
 
-  // 🔥 DB HANDLER: Delete Status
   const handleDeleteStatus = async (statusId) => {
     setMyStatuses(prev => prev.filter(s => String(s.id) !== String(statusId)));
     await fetch("/api/messages/fetch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "DELETE_STATUS",
-        userId: studentId.trim(),
-        partnerId: targetNode,
-        channel: activeChannel,
-        statusId
-      })
+      body: JSON.stringify({ action: "DELETE_STATUS", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, statusId })
     }).catch(() => {});
-
     const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
-    fetch("/api/pusher", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
-    }).catch(() => {});
+    fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
   };
 
-  // 🔥 DB HANDLER: Mark Partner's Status as Seen
   const handleViewPartnerStatus = async (statusId) => {
     if (!statusId || !targetNode) return;
     const viewTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     await fetch("/api/messages/fetch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "VIEW_PARTNER_STATUS",
-        userId: studentId.trim(),
-        partnerId: targetNode,
-        channel: activeChannel,
-        statusId,
-        viewerName: studentId.trim(),
-        viewerPfp: profileImage,
-        viewTime
-      })
-    }).catch(() => {});
-
-    const syncSignal = CryptoJS.AES.encrypt("SYS_PROFILE_SYNC", SECRET_KEY).toString();
-    fetch("/api/pusher", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: Date.now(), encryptedText: syncSignal, senderId: studentId.trim(), channel: activeChannel })
+      body: JSON.stringify({ action: "VIEW_PARTNER_STATUS", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, statusId, viewerName: studentId.trim(), viewerPfp: profileImage, viewTime })
     }).catch(() => {});
   };
 
-  // 🔥 DB HANDLER: Save / Delete Call Logs
   const logCallToDb = async (callType, isVideo) => {
-    const callItem = {
-      id: Date.now(),
-      type: callType,
-      isVideo: Boolean(isVideo),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
+    const callItem = { id: Date.now(), type: callType, isVideo: Boolean(isVideo), time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
     setCallLogs(prev => [callItem, ...prev]);
     await fetch("/api/messages/fetch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "ADD_CALL_LOG",
-        userId: studentId.trim(),
-        partnerId: targetNode,
-        channel: activeChannel,
-        callItem
-      })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ADD_CALL_LOG", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, callItem })
     }).catch(() => {});
   };
 
   const handleDeleteCallLog = async (callId) => {
     setCallLogs(prev => prev.filter(c => String(c.id) !== String(callId)));
     await fetch("/api/messages/fetch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "DELETE_CALL_LOG",
-        userId: studentId.trim(),
-        partnerId: targetNode,
-        channel: activeChannel,
-        callId
-      })
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "DELETE_CALL_LOG", userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, callId })
     }).catch(() => {});
   };
 
@@ -339,12 +258,6 @@ export default function Home() {
       window.removeEventListener('resize', handleViewportChange);
     };
   }, [appState]);
-
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-      Notification.requestPermission();
-    }
-  }, []);
 
   const sendDrawEvent = (x0, y0, x1, y1, color) => {
     const drawData = `SYS_DRAW::${x0.toFixed(4)},${y0.toFixed(4)},${x1.toFixed(4)},${y1.toFixed(4)},${color}`;
@@ -409,13 +322,7 @@ export default function Home() {
       if (peerInstance.current && !peerInstance.current.destroyed) return;
       import('peerjs').then(({ default: Peer }) => {
         const peer = new Peer(studentId.trim(), {
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun2.l.google.com:19302' }
-            ]
-          }
+          config: { iceServers: [ { urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' } ] }
         });
         peer.on('call', (call) => {
           setIncomingCall(call);
@@ -430,54 +337,38 @@ export default function Home() {
 
   const startCall = async (isVideo) => {
     try {
-      if (!peerInstance.current) throw new Error("Network not ready yet. Please wait a second.");
-      if (peerInstance.current.destroyed) throw new Error("Connection lost. Please Log out and Log back in.");
+      if (!peerInstance.current) throw new Error("Network not ready yet.");
+      if (peerInstance.current.destroyed) throw new Error("Connection lost.");
       if (peerInstance.current.disconnected) peerInstance.current.reconnect();
 
       const isVideoReq = isVideo === true;
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoReq, audio: true });
-
-      if (stream.getAudioTracks().length > 0) {
-        stream.getAudioTracks()[0].enabled = false;
-      }
+      if (stream.getAudioTracks().length > 0) stream.getAudioTracks()[0].enabled = false;
+      
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
       setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
-
-      setLocalStream(stream);
-      setIsVideoCall(isVideoReq);
-      setCallState("ON_CALL");
+      setLocalStream(stream); setIsVideoCall(isVideoReq); setCallState("ON_CALL");
 
       const call = peerInstance.current.call(targetNode, stream, { metadata: { isVideo: isVideoReq } });
       logCallToDb('outgoing', isVideoReq);
-
-      if (!call) throw new Error("Partner is offline or network is busy.");
+      if (!call) throw new Error("Partner offline.");
       currentCall.current = call;
 
       call.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       call.on('close', () => endCall());
       call.on('error', () => endCall()); 
-    } catch (err) {
-      const isDeviceErr = err.name === "NotAllowedError" || err.name === "NotFoundError";
-      const prefix = isDeviceErr ? "Camera/Mic Error:" : "Connection Status:";
-      alert(`❌ ${prefix} ${err.message}`);
-      setCallState("IDLE");
-    }
+    } catch (err) { alert(`❌ ${err.message}`); setCallState("IDLE"); }
   };
 
   const answerCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: isVideoCall, audio: true });
-
-      if (stream.getAudioTracks().length > 0) {
-        stream.getAudioTracks()[0].enabled = false;
-      }
+      if (stream.getAudioTracks().length > 0) stream.getAudioTracks()[0].enabled = false;
+      
       setIsMicMuted(true); setIsVideoMuted(false); setIsRemoteVideoMuted(false); setIsRemoteMicMuted(false);
       setLocalFilter(0); setRemoteFilter(0); setIsCallMinimized(false);
-
       setLocalStream(stream);
 
-      if (!incomingCall) throw new Error("Incoming call dropped or partner disconnected.");
-      
       incomingCall.answer(stream);
       currentCall.current = incomingCall;
       setCallState("ON_CALL");
@@ -485,19 +376,10 @@ export default function Home() {
       incomingCall.on('stream', (userVideoStream) => setRemoteStream(userVideoStream));
       incomingCall.on('close', () => endCall());
       incomingCall.on('error', () => endCall()); 
-    } catch (err) {
-      const isDeviceErr = err.name === "NotAllowedError" || err.name === "NotFoundError";
-      const prefix = isDeviceErr ? "Camera/Mic Error:" : "Connection Status:";
-      alert(`❌ ${prefix} ${err.message}`);
-      rejectCall();
-    }
+    } catch (err) { alert(`❌ ${err.message}`); rejectCall(); }
   };
 
-  const rejectCall = () => {
-    if (incomingCall) incomingCall.close();
-    setCallState("IDLE");
-    setIncomingCall(null);
-  };
+  const rejectCall = () => { if (incomingCall) incomingCall.close(); setCallState("IDLE"); setIncomingCall(null); };
 
   const endCall = () => {
     if (currentCall.current) currentCall.current.close();
@@ -511,10 +393,8 @@ export default function Home() {
     if (localStream) {
       const audioTrack = localStream.getAudioTracks()[0];
       audioTrack.enabled = !audioTrack.enabled;
-      const newMicState = !audioTrack.enabled;
-      setIsMicMuted(newMicState);
-
-      const pingText = CryptoJS.AES.encrypt(newMicState ? "SYS_MIC_OFF" : "SYS_MIC_ON", SECRET_KEY).toString();
+      setIsMicMuted(!audioTrack.enabled);
+      const pingText = CryptoJS.AES.encrypt(!audioTrack.enabled ? "SYS_MIC_OFF" : "SYS_MIC_ON", SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     }
   };
@@ -523,26 +403,32 @@ export default function Home() {
     if (localStream && isVideoCall) {
       const videoTrack = localStream.getVideoTracks()[0];
       videoTrack.enabled = !videoTrack.enabled;
-      const newVideoState = !videoTrack.enabled;
-      setIsVideoMuted(newVideoState);
-
-      const pingText = CryptoJS.AES.encrypt(newVideoState ? "SYS_VID_OFF" : "SYS_VID_ON", SECRET_KEY).toString();
+      setIsVideoMuted(!videoTrack.enabled);
+      const pingText = CryptoJS.AES.encrypt(!videoTrack.enabled ? "SYS_VID_OFF" : "SYS_VID_ON", SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     }
   };
 
-  const handleReaction = (msgId, emoji) => {
+  const handleReaction = async (msgId, emoji) => {
+    const idStr = String(msgId);
     setMessages(prev => prev.map(m => {
-      if (String(m.id) === String(msgId) || String(m._id) === String(msgId)) {
+      if (String(m.id) === idStr || String(m._id) === idStr) {
          const newReactions = { ...(m.reactions || {}) };
-         if (emoji) newReactions.me = emoji;
-         else delete newReactions.me;
+         if (emoji) newReactions.me = emoji; else delete newReactions.me;
          return { ...m, reactions: newReactions };
       }
       return m;
     }));
-    const pingText = CryptoJS.AES.encrypt(`SYS_REACT::${msgId}::${emoji}`, SECRET_KEY).toString();
+
+    const pingText = CryptoJS.AES.encrypt(`SYS_REACT::${idStr}::${emoji}`, SECRET_KEY).toString();
     fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
+
+    const targetMsg = messages.find(m => String(m._id) === idStr || String(m.id) === idStr);
+    const dbId = targetMsg && targetMsg._id ? String(targetMsg._id) : idStr;
+    await fetch("/api/messages/fetch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "REACT", msgId: dbId, userId: studentId.trim(), emoji })
+    }).catch(() => {});
   };
 
   const handleMessageAction = async (msgId, action, extraPayload) => {
@@ -552,49 +438,26 @@ export default function Home() {
 
     if (action === "DELETE_ME") {
       setMessages(prev => prev.filter(m => String(m.id) !== idStr && String(m._id) !== idStr));
-      await fetch("/api/messages/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "DELETE_ME", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel })
-      }).catch(() => {});
+      await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "DELETE_ME", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel }) }).catch(() => {});
     } 
     else if (action === "DELETE_EVERYONE") {
       const deletedText = "🚫 This message was deleted";
       const deletedEncryptedText = CryptoJS.AES.encrypt(deletedText, SECRET_KEY).toString();
-
       setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isDeleted: true, text: deletedText } : m));
-
-      await fetch("/api/messages/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "DELETE_EVERYONE", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, deletedEncryptedText })
-      }).catch(() => {});
-
+      await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "DELETE_EVERYONE", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, deletedEncryptedText }) }).catch(() => {});
       const pingText = CryptoJS.AES.encrypt(`SYS_DEL_MSG::${dbId}`, SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     } 
     else if (action === "PIN") {
       const pinnedUntil = extraPayload ? Date.now() + extraPayload : null;
       setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isPinned: true, pinnedUntil } : m));
-
-      await fetch("/api/messages/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "PIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, pinnedUntil })
-      }).catch(() => {});
-
+      await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "PIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel, pinnedUntil }) }).catch(() => {});
       const pingText = CryptoJS.AES.encrypt(`SYS_PIN_MSG::${dbId}::${pinnedUntil || 'forever'}`, SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     }
     else if (action === "UNPIN") {
       setMessages(prev => prev.map(m => (String(m.id) === idStr || String(m._id) === idStr) ? { ...m, isPinned: false, pinnedUntil: null } : m));
-
-      await fetch("/api/messages/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "UNPIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel })
-      }).catch(() => {});
-
+      await fetch("/api/messages/fetch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "UNPIN", msgId: dbId, userId: studentId.trim(), partnerId: targetNode, channel: activeChannel }) }).catch(() => {});
       const pingText = CryptoJS.AES.encrypt(`SYS_UNPIN_MSG::${dbId}`, SECRET_KEY).toString();
       fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {});
     }
@@ -626,19 +489,15 @@ export default function Home() {
         if (ignorePanicRef.current) setTimeout(() => { ignorePanicRef.current = false; }, 1500);
       }
     };
-
     const handleBlur = () => {
       if (ignorePanicRef.current || callState !== "IDLE") return;
       if (document.activeElement && document.activeElement.tagName === 'IFRAME') return;
       handleLogout();
     };
-
     const handleFocus = () => { if (ignorePanicRef.current) setTimeout(() => { ignorePanicRef.current = false; }, 1500); };
-
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("blur", handleBlur);
     window.addEventListener("focus", handleFocus);
-
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("blur", handleBlur);
@@ -661,7 +520,7 @@ export default function Home() {
             if (isExpired && msg.sender === "them" && msg._id) {
                hasChanges = true;
                fetch("/api/messages/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messageId: msg._id }) }).catch(e => {});
-               if (msg.text.startsWith("IMG_SYS::") || msg.text.startsWith("VID_SYS::") || msg.text.startsWith("STK_SYS::")) {
+               if (msg.text.startsWith("IMG_SYS::") || msg.text.startsWith("VID_SYS::") || msg.text.startsWith("STK_SYS::") || msg.text.startsWith("AUD_SYS::")) {
                  const parts = msg.text.split("::"); const dToken = parts[2];
                  if (dToken && dToken !== "no_token") fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/delete_by_token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: dToken }) }).catch(e => {});
                }
@@ -677,22 +536,16 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [appState]);
 
-  // 🔥 FETCH MESSAGES + ROOM-SCOPED PROFILES & STATUSES FROM MONGODB
   const fetchPendingMessages = async () => {
     if (!currentUser || !activeChannel || !studentId) return;
+    setIsFetchingChat(true);
     try {
       const res = await fetch("/api/messages/fetch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: studentId.trim(),
-          partnerId: targetNode,
-          channel: activeChannel
-        }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: studentId.trim(), partnerId: targetNode, channel: activeChannel }),
       });
       const data = await res.json();
       if (data.success) {
-        // 1. Update Room-Scoped Profile, Statuses & Call Logs from DB
         if (data.myProfile) {
           setProfileImage(data.myProfile.profileImage || "/cat.png");
           setMyStatuses(Array.isArray(data.myProfile.statuses) ? data.myProfile.statuses : []);
@@ -703,10 +556,8 @@ export default function Home() {
           setPartnerStatuses(Array.isArray(data.partnerProfile.statuses) ? data.partnerProfile.statuses : []);
         }
 
-        // 2. Update Messages
         if (Array.isArray(data.messages)) {
           const myId = studentId.trim().toLowerCase();
-
           const fetched = data.messages.map((m) => {
             let decrypted = "";
             try {
@@ -717,6 +568,11 @@ export default function Home() {
             const isMe = String(m.senderId).trim().toLowerCase() === myId;
             const exactTime = m.timeStr || (m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
             const isDel = Boolean(m.isDeleted) || decrypted === "🚫 This message was deleted";
+            const timestampObj = m.createdAt ? new Date(m.createdAt).getTime() : Date.now();
+            
+            const dbReactions = m.reactions || {};
+            const meReaction = dbReactions[myId] || "";
+            const themReaction = Object.keys(dbReactions).filter(k => k !== myId).map(k => dbReactions[k])[0] || "";
 
             return {
               id: m._id,
@@ -724,10 +580,12 @@ export default function Home() {
               text: isDel ? "🚫 This message was deleted" : decrypted,
               sender: isMe ? "me" : "them",
               time: exactTime,
+              timestamp: timestampObj,
               seenAt: m.seenAt ? new Date(m.seenAt).getTime() : (!isMe ? Date.now() : null),
               isDeleted: isDel,
               isPinned: Boolean(m.isPinned),
-              pinnedUntil: m.pinnedUntil ? new Date(m.pinnedUntil).getTime() : null
+              pinnedUntil: m.pinnedUntil ? new Date(m.pinnedUntil).getTime() : null,
+              reactions: { me: meReaction, them: themReaction } 
             };
           }).filter(item => item.text && !item.text.startsWith("SYS_"));
 
@@ -737,15 +595,16 @@ export default function Home() {
             const isMe = String(m.senderId).trim().toLowerCase() === myId;
             if (!isMe && !m.seenAt) {
               await fetch("/api/messages/seen", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ id: m._id, channel: activeChannel })
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m._id, channel: activeChannel })
               }).catch(() => {});
             }
           });
         }
       }
     } catch (error) {}
+    finally {
+      setIsFetchingChat(false);
+    }
   };
 
   useEffect(() => {
@@ -754,32 +613,16 @@ export default function Home() {
     }
   }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
-  useEffect(() => {
-    let stream = null;
-    if (appState === "SNAP_MODE") {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: true })
-        .then((s) => {
-          stream = s;
-          if (snapVideoRef.current) {
-            snapVideoRef.current.srcObject = s;
-          }
-        })
-        .catch(() => alert("Camera & Mic access required for Snap Video"));
-    }
-    return () => {
-      if (stream) stream.getTracks().forEach(track => track.stop());
-    };
-  }, [appState]);
-
   const handleLogin = async (e) => {
     e.preventDefault(); setIsLoggingIn(true); setError("");
-    // Reset state before loading new user/room data
     setProfileImage("/cat.png");
     setPartnerImage("/love.png");
     setMyStatuses([]);
     setPartnerStatuses([]);
     setCallLogs([]);
     setMessages([]);
+    setSurpriseRevealed(false);
+    setIsFetchingChat(true);
 
     try {
       const res = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uid: studentId.trim(), pin: password }) });
@@ -823,11 +666,7 @@ export default function Home() {
         const bytes = CryptoJS.AES.decrypt(data.encryptedText, SECRET_KEY);
         const text = bytes.toString(CryptoJS.enc.Utf8);
 
-        // 🔥 REAL-TIME SYNC WHEN PARTNER UPDATES PFP OR STATUS OR VIEWS STATUS
-        if (text === "SYS_PROFILE_SYNC") {
-            fetchPendingMessages();
-            return;
-        }
+        if (text === "SYS_PROFILE_SYNC") { fetchPendingMessages(); return; }
 
         if (text.startsWith("SYS_DEL_MSG::")) {
             const msgIdToDel = text.split("::")[1];
@@ -890,22 +729,12 @@ export default function Home() {
         if (text.startsWith("SYS_DRAW::")) {
           const parts = text.split("::")[1].split(",");
           window.dispatchEvent(new CustomEvent("peer-draw", {
-            detail: {
-              x0: parseFloat(parts[0]),
-              y0: parseFloat(parts[1]),
-              x1: parseFloat(parts[2]),
-              y1: parseFloat(parts[3]),
-              color: parts[4]
-            }
+            detail: { x0: parseFloat(parts[0]), y0: parseFloat(parts[1]), x1: parseFloat(parts[2]), y1: parseFloat(parts[3]), color: parts[4] }
           }));
           return;
         }
 
-        if (text === "SYS_CLEAR_CANVAS") {
-           window.dispatchEvent(new Event("peer-clear"));
-           return;
-        }
-
+        if (text === "SYS_CLEAR_CANVAS") { window.dispatchEvent(new Event("peer-clear")); return; }
         if (text === "SYS_PING_ACTIVE" || text === "SYS_NODE_CONNECTED") {
           setIsPeerActive(true);
           clearTimeout(peerTimeout.current);
@@ -933,10 +762,10 @@ export default function Home() {
     });
 
     const pingInterval = setInterval(sendPresencePing, 3000);
-
     return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
   }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
+  // 🔥 RESTORED SCROLL TO BOTTOM FUNCTION
   const scrollToBottom = () => {
     setTimeout(() => {
       if (chatContainerRef.current) {
@@ -954,7 +783,7 @@ export default function Home() {
     const tempId = Date.now();
     const timeStr = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 
-    setMessages((prev) => [...prev, { id: tempId, _id: tempId, text: msgText, sender: "me", time: timeStr, seenAt: null, isDeleted: false, isPinned: false }]);
+    setMessages((prev) => [...prev, { id: tempId, _id: tempId, text: msgText, sender: "me", time: timeStr, timestamp: tempId, seenAt: null, isDeleted: false, isPinned: false }]);
     await fetch("/api/messages/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tempId, encryptedText, senderId: studentId.trim(), receiverId: targetNode, channel: activeChannel, timeStr }), });
     setTimeout(() => fetchPendingMessages(), 300);
   };
@@ -986,8 +815,7 @@ export default function Home() {
 
     try {
       const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`, {
-        method: "POST",
-        body: formData,
+        method: "POST", body: formData,
       });
       const data = await res.json();
 
@@ -1014,22 +842,13 @@ export default function Home() {
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
       mediaRecorderRef.current = recorder;
       videoChunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) videoChunksRef.current.push(e.data);
-      };
-
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) videoChunksRef.current.push(e.data); };
       recorder.onstop = async () => {
         const blob = new Blob(videoChunksRef.current, { type: "video/webm" });
         await handleSnapVideoUpload(blob);
       };
-
-      recorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Recording error:", err);
-      alert("Video recording not supported on this browser.");
-    }
+      recorder.start(); setIsRecording(true);
+    } catch (err) { alert("Video recording not supported on this browser."); }
   };
 
   const stopRecording = () => {
@@ -1042,32 +861,23 @@ export default function Home() {
   const handlePointerDown = () => {
     if (isSnapping || isUploading) return;
     isLongPressRef.current = false;
-    pressTimerRef.current = setTimeout(() => {
-      isLongPressRef.current = true;
-      startRecording();
-    }, 300);
+    pressTimerRef.current = setTimeout(() => { isLongPressRef.current = true; startRecording(); }, 300);
   };
 
   const handlePointerUp = () => {
     if (pressTimerRef.current) clearTimeout(pressTimerRef.current);
-    if (isLongPressRef.current) {
-      stopRecording();
-    } else {
-      handleSnapCapture();
-    }
+    if (isLongPressRef.current) { stopRecording(); } else { handleSnapCapture(); }
   };
 
   const handleSnapVideoUpload = async (blob) => {
     setIsSnapping(true);
     const file = new File([blob], `snap_vid_${Date.now()}.webm`, { type: "video/webm" });
     const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+    formData.append("file", file); formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
 
     try {
       const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`, {
-        method: "POST",
-        body: formData,
+        method: "POST", body: formData,
       });
       const data = await res.json();
 
@@ -1075,14 +885,9 @@ export default function Home() {
         const delToken = data.delete_token || "no_token";
         await dispatchMessage(`VID_SYS::${data.secure_url}::${delToken}`);
         setAppState("CHAT");
-      } else {
-        alert("Video upload failed.");
-      }
-    } catch (error) {
-      alert("Network error sending video.");
-    } finally {
-      setIsSnapping(false);
-      setIsRecording(false);
+      } else { alert("Video upload failed."); }
+    } catch (error) { alert("Network error sending video."); } finally {
+      setIsSnapping(false); setIsRecording(false);
     }
   };
 
@@ -1092,42 +897,30 @@ export default function Home() {
 
     const video = snapVideoRef.current;
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
 
     ctx.filter = SNAP_FILTERS[snapFilterIndex].filter;
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     canvas.toBlob(async (blob) => {
       if (!blob) { setIsSnapping(false); return; }
-
       const file = new File([blob], `snap_${Date.now()}.jpg`, { type: "image/jpeg" });
       const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+      formData.append("file", file); formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
 
       try {
         const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
-          method: "POST",
-          body: formData,
+          method: "POST", body: formData,
         });
         const data = await res.json();
-
         if (data.secure_url) {
           const delToken = data.delete_token || "no_token";
           await dispatchMessage(`IMG_SYS::${data.secure_url}::${delToken}`);
           setAppState("CHAT");
-        } else {
-          alert("Snap upload failed.");
-        }
-      } catch (error) {
-        alert("Network error sending snap.");
-      } finally {
-        setIsSnapping(false);
-      }
+        } else { alert("Snap upload failed."); }
+      } catch (error) { alert("Network error sending snap."); } finally { setIsSnapping(false); }
     }, "image/jpeg", 0.9);
   };
 
@@ -1165,7 +958,6 @@ export default function Home() {
       />
 
       <AnimatePresence mode="wait">
-
         {appState === "DECOY" && (
           <motion.div key="decoy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="absolute inset-0 w-full h-full bg-[#fafbfc] overflow-y-auto">
             <ModernDecoy onTrigger={() => setAppState("PORTAL_LOGIN")} />
@@ -1188,6 +980,13 @@ export default function Home() {
           </motion.div>
         )}
 
+        {appState === "ANNIVERSARY_POPUP" && (
+          <AnniversaryPopup onContinue={() => {
+              setSurpriseRevealed(true);
+              setAppState("WHATSAPP_UI");
+          }} />
+        )}
+
         {(appState === "WHATSAPP_UI" || appState === "MODE_SELECTION") && (
           <WhatsAppUI 
              setAppState={setAppState}
@@ -1197,10 +996,13 @@ export default function Home() {
              isLoveMode={isLoveMode}
              setIsLoveMode={setIsLoveMode}
              profileImage={profileImage}
+             setProfileImage={setProfileImage}
              partnerImage={partnerImage}
              messages={messages}
              callLogs={callLogs}
+             setCallLogs={setCallLogs}
              myStatuses={myStatuses}
+             setMyStatuses={setMyStatuses}
              partnerStatuses={partnerStatuses}
              onUploadProfileImage={handleUploadProfileImage}
              onAddStatus={handleAddStatus}
@@ -1209,6 +1011,9 @@ export default function Home() {
              onDeleteCallLog={handleDeleteCallLog}
              isSavingMedia={isSavingMedia}
              ignorePanicRef={ignorePanicRef}
+             surpriseRevealed={surpriseRevealed}
+             setSurpriseRevealed={setSurpriseRevealed}
+             isFetchingChat={isFetchingChat} 
           />
         )}
 
@@ -1259,33 +1064,48 @@ export default function Home() {
             exit={{ opacity: 0, x: -50 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
-            style={{ top: 0, height: '100%', backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9'), backgroundImage: isLoveMode ? 'radial-gradient(circle at center, #2e0510 0%, #050002 100%)' : 'none' }}
+            style={{ top: 0, height: '100%', backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9') }}
           >
             <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
             <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
 
             <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} setAppState={setAppState} setExpandedImage={setExpandedImage} partnerImage={partnerImage} />
 
-            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} bgPatternDark={bgPatternDark} bgPatternLight={bgPatternLight} bgPatternLove={bgPatternLove} setReplyTo={setReplyTo} handleReaction={handleReaction} handleMessageAction={handleMessageAction} />
+            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} setReplyTo={setReplyTo} handleReaction={handleReaction} handleMessageAction={handleMessageAction} />
 
-            <MessageInput inputRef={inputRef} input={input} setInput={setInput} handleTextSubmit={handleTextSubmit} handleInputChange={handleInputChange} isUploading={isUploading} showEmojis={showEmojis} setShowEmojis={setShowEmojis} cameraInputRef={cameraInputRef} galleryInputRef={galleryInputRef} isDarkMode={isDarkMode} isLoveMode={isLoveMode} ignorePanicRef={ignorePanicRef} scrollToBottom={scrollToBottom} dispatchMessage={dispatchMessage} setAppState={setAppState} replyTo={replyTo} setReplyTo={setReplyTo} />
+            <MessageInput 
+               inputRef={inputRef} 
+               input={input} 
+               setInput={setInput} 
+               handleTextSubmit={handleTextSubmit} 
+               handleInputChange={handleInputChange} 
+               isUploading={isUploading} 
+               showEmojis={showEmojis} 
+               setShowEmojis={setShowEmojis} 
+               cameraInputRef={cameraInputRef} 
+               galleryInputRef={galleryInputRef} 
+               isDarkMode={isDarkMode} 
+               isLoveMode={isLoveMode} 
+               ignorePanicRef={ignorePanicRef} 
+               scrollToBottom={scrollToBottom} 
+               dispatchMessage={dispatchMessage} 
+               setAppState={setAppState} 
+               replyTo={replyTo} 
+               setReplyTo={setReplyTo} 
+               CLOUDINARY_CLOUD_NAME={CLOUDINARY_CLOUD_NAME} 
+               CLOUDINARY_UPLOAD_PRESET={CLOUDINARY_UPLOAD_PRESET} 
+            />
 
             <CallOverlay callState={callState} isVideoCall={isVideoCall} localStream={localStream} remoteStream={remoteStream} answerCall={answerCall} rejectCall={rejectCall} endCall={endCall} isMicMuted={isMicMuted} isVideoMuted={isVideoMuted} toggleMic={toggleMic} toggleVideo={toggleVideo} isRemoteVideoMuted={isRemoteVideoMuted} isRemoteMicMuted={isRemoteMicMuted} isCallMinimized={isCallMinimized} setIsCallMinimized={setIsCallMinimized} SNAP_FILTERS={SNAP_FILTERS} localFilter={localFilter} setLocalFilter={(newFilterIndex) => { setLocalFilter(newFilterIndex); const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString(); fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {}); }} remoteFilter={remoteFilter} />
           </motion.div>
         )}
 
-        {/* EXPANDED IMAGE VIEWER */}
         {expandedImage && (
            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setExpandedImage(null)} className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
               {expandedImage.type === 'video' ? (
                  <video src={expandedImage.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
               ) : (
                  <img src={expandedImage.url} alt="Expanded" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
-              )}
-              {expandedImage.caption && (
-                 <motion.p initial={{y: 20, opacity: 0}} animate={{y: 0, opacity: 1}} className="text-white mt-6 text-base md:text-lg font-medium bg-white/10 backdrop-blur-md px-6 py-3 rounded-2xl shadow-lg max-w-sm text-center" onClick={(e) => e.stopPropagation()}>
-                    {expandedImage.caption}
-                 </motion.p>
               )}
            </motion.div>
         )}

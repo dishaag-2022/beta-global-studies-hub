@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Send, Smile, Camera, Image as ImageIcon, Sticker, Heart, X, Reply, Search } from "lucide-react";
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Smile, Camera, Image as ImageIcon, Sticker, Heart, X, Reply, Search, Mic, Square } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import EmojiPicker from 'emoji-picker-react';
 
@@ -7,12 +7,17 @@ export default function MessageInput({
   inputRef, input, setInput, handleInputChange, isUploading,
   showEmojis, setShowEmojis, cameraInputRef, galleryInputRef, isDarkMode, 
   isLoveMode, ignorePanicRef, scrollToBottom, dispatchMessage, setAppState,
-  replyTo, setReplyTo 
+  replyTo, setReplyTo, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET
 }) {
   const [showStickers, setShowStickers] = useState(false);
   const [gifs, setGifs] = useState([]);
   const [stickerSearch, setStickerSearch] = useState("");
   const [loadingGifs, setLoadingGifs] = useState(false);
+
+  // 🔥 VOICE RECORDING STATES
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const audioRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   const fetchGifs = async (query) => {
     setLoadingGifs(true);
@@ -39,7 +44,6 @@ export default function MessageInput({
     
     if (input.trim()) {
        dispatchMessage(finalMsg);
-       // 🔥 FIX 1: Message bhejte hi turant neeche scroll hoga
        setTimeout(scrollToBottom, 50); 
     }
     
@@ -47,6 +51,66 @@ export default function MessageInput({
     setShowEmojis(false);
     if(setReplyTo) setReplyTo(null);
     inputRef.current?.focus();
+  };
+
+  // 🔥 START VOICE RECORDING
+  const startAudioRecording = async () => {
+    if (ignorePanicRef) ignorePanicRef.current = true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach(track => track.stop());
+        await handleAudioUpload(audioBlob);
+      };
+
+      recorder.start();
+      setIsRecordingAudio(true);
+    } catch (err) {
+      alert("Microphone access denied or not supported.");
+    }
+  };
+
+  // 🔥 STOP & SEND VOICE RECORDING
+  const stopAudioRecording = () => {
+    if (audioRecorderRef.current && isRecordingAudio) {
+      audioRecorderRef.current.stop();
+      setIsRecordingAudio(false);
+    }
+  };
+
+  // 🔥 UPLOAD AUDIO TO CLOUDINARY & DISPATCH
+  const handleAudioUpload = async (blob) => {
+    const file = new File([blob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
+
+    try {
+      // Audio can be uploaded using video endpoint in Cloudinary
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.secure_url) {
+        const delToken = data.delete_token || "no_token";
+        await dispatchMessage(`AUD_SYS::${data.secure_url}::${delToken}`);
+        setTimeout(scrollToBottom, 100);
+      } else {
+        alert("Voice message upload failed.");
+      }
+    } catch (err) {
+      alert("Error sending voice message.");
+    }
   };
 
   return (
@@ -90,13 +154,14 @@ export default function MessageInput({
         )}
       </AnimatePresence>
 
+      {/* Reply Preview */}
       <AnimatePresence>
         {replyTo && (
            <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }} className={`mx-4 mb-2 p-3 rounded-xl flex justify-between items-center shadow-lg border-l-4 ${isLoveMode ? "bg-[#2a0a12] border-pink-500 text-rose-200" : isDarkMode ? "bg-[#18181b] border-blue-500 text-slate-300" : "bg-white border-blue-500 text-slate-700"}`}>
              <div className="flex flex-col pr-4 w-full min-w-0 overflow-hidden">
                 <span className={`text-xs font-bold flex items-center gap-1 ${isLoveMode ? "text-pink-400" : "text-blue-500"}`}><Reply size={12}/> Replying to</span>
                 <span className="text-sm opacity-80 mt-0.5 line-clamp-2 text-ellipsis overflow-hidden whitespace-normal break-words w-full">
-                   {replyTo.text.startsWith("IMG_SYS") ? "📷 Photo" : replyTo.text.startsWith("VID_SYS") ? "🎥 Video" : replyTo.text.startsWith("STK_SYS") ? "✨ Sticker" : replyTo.text.split("|||").pop()}
+                   {replyTo.text.startsWith("IMG_SYS") ? "📷 Photo" : replyTo.text.startsWith("VID_SYS") ? "🎥 Video" : replyTo.text.startsWith("STK_SYS") ? "✨ Sticker" : replyTo.text.startsWith("AUD_SYS") ? "🎤 Voice Message" : replyTo.text.split("|||").pop()}
                 </span>
              </div>
              <button onClick={() => setReplyTo(null)} className="p-1.5 shrink-0 rounded-full hover:bg-black/10 dark:hover:bg-white/10 transition-colors"><X size={16}/></button>
@@ -123,27 +188,50 @@ export default function MessageInput({
               <input 
                 ref={inputRef} type="text" value={input} onChange={handleInputChange} onFocus={() => setTimeout(scrollToBottom, 300)} 
                 className={`flex-1 bg-transparent border-none text-[16px] outline-none h-full w-full transition-colors ${isLoveMode ? "text-rose-100 placeholder-rose-900" : isDarkMode ? "text-slate-200 placeholder-slate-500" : "text-slate-700 placeholder-slate-400"}`} 
-                placeholder={isUploading ? "Sending photo..." : "Message..."} 
-                autoComplete="off" disabled={isUploading} 
+                placeholder={isRecordingAudio ? "Recording Voice Message..." : (isUploading ? "Sending media..." : "Message...")} 
+                autoComplete="off" disabled={isUploading || isRecordingAudio} 
               />
             </form>
 
-            <div className="flex gap-0.5 items-center shrink-0 pr-1">
-              <button type="button" disabled={isUploading} onClick={(e) => { e.preventDefault(); if (ignorePanicRef) ignorePanicRef.current = true; setAppState("SNAP_MODE"); }} className={`p-1.5 disabled:opacity-50 transition-transform active:scale-90 ${isLoveMode ? "text-rose-400/70 hover:text-rose-300" : isDarkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-400 hover:text-slate-600"}`}>
-                <Camera size={22} strokeWidth={1.5} />
-              </button>
-              <button type="button" disabled={isUploading} onClick={(e) => { e.preventDefault(); if (ignorePanicRef) ignorePanicRef.current = true; galleryInputRef.current?.click(); }} className={`p-1.5 disabled:opacity-50 transition-transform active:scale-90 ${isLoveMode ? "text-rose-400/70 hover:text-rose-300" : isDarkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-400 hover:text-slate-600"}`}>
-                <ImageIcon size={22} strokeWidth={1.5} />
-              </button>
-            </div>
+            {!isRecordingAudio && (
+              <div className="flex gap-0.5 items-center shrink-0 pr-1">
+                <button type="button" disabled={isUploading} onClick={(e) => { e.preventDefault(); if (ignorePanicRef) ignorePanicRef.current = true; setAppState("SNAP_MODE"); }} className={`p-1.5 disabled:opacity-50 transition-transform active:scale-90 ${isLoveMode ? "text-rose-400/70 hover:text-rose-300" : isDarkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-400 hover:text-slate-600"}`}>
+                  <Camera size={22} strokeWidth={1.5} />
+                </button>
+                <button type="button" disabled={isUploading} onClick={(e) => { e.preventDefault(); if (ignorePanicRef) ignorePanicRef.current = true; galleryInputRef.current?.click(); }} className={`p-1.5 disabled:opacity-50 transition-transform active:scale-90 ${isLoveMode ? "text-rose-400/70 hover:text-rose-300" : isDarkMode ? "text-slate-400 hover:text-slate-200" : "text-slate-400 hover:text-slate-600"}`}>
+                  <ImageIcon size={22} strokeWidth={1.5} />
+                </button>
+              </div>
+            )}
           </div>
 
-          <button 
-            onClick={onCustomSubmit} onPointerDown={(e) => e.preventDefault()} disabled={!input.trim() && !isUploading} 
-            className={`w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full transition-all duration-300 shadow-sm relative z-20 will-change-transform ${(!input.trim() && !isUploading) ? (isLoveMode ? 'bg-rose-900/50 text-rose-300/50 scale-95' : 'bg-blue-600/50 text-white/50 scale-95') : (isLoveMode ? 'bg-gradient-to-r from-rose-600 to-pink-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.6)] hover:scale-105' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20')}`}
-          >
-            {isLoveMode && input.trim() ? <Heart size={20} fill="white" className="animate-pulse" /> : <Send size={20} className="ml-1" strokeWidth={1.5} />}
-          </button>
+          {/* 🔥 DYNAMIC BUTTON: Send Text OR Record Audio */}
+          {input.trim() ? (
+            // SEND BUTTON (When user types text)
+            <button 
+              onClick={onCustomSubmit} onPointerDown={(e) => e.preventDefault()} 
+              className={`w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full transition-all duration-300 shadow-sm relative z-20 will-change-transform ${isLoveMode ? 'bg-gradient-to-r from-rose-600 to-pink-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.6)] hover:scale-105' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20'}`}
+            >
+              {isLoveMode ? <Heart size={20} fill="white" className="animate-pulse" /> : <Send size={20} className="ml-1" strokeWidth={1.5} />}
+            </button>
+          ) : isRecordingAudio ? (
+            // STOP RECORDING BUTTON (Pulse effect)
+            <button 
+              onClick={stopAudioRecording} type="button"
+              className="w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full bg-rose-600 text-white shadow-[0_0_20px_rgba(225,29,72,0.8)] animate-pulse"
+            >
+              <Square size={18} fill="white" />
+            </button>
+          ) : (
+            // START RECORDING BUTTON (Mic)
+            <button 
+              onClick={startAudioRecording} type="button" disabled={isUploading}
+              className={`w-[48px] h-[48px] shrink-0 flex items-center justify-center rounded-full transition-all duration-300 shadow-sm relative z-20 will-change-transform ${isLoveMode ? 'bg-rose-900/50 text-rose-300 hover:text-white hover:bg-rose-600 scale-95 hover:scale-105' : 'bg-blue-600/20 text-blue-500 hover:bg-blue-500 hover:text-white scale-95 hover:scale-105'}`}
+            >
+              <Mic size={22} strokeWidth={1.5} />
+            </button>
+          )}
+
         </div>
       </div>
     </div>

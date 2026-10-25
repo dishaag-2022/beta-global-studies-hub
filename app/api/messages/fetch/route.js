@@ -5,7 +5,6 @@ import Message, { RoomProfile } from "../../../../models/Message";
 
 const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
-// Helper: Backend ke 'rooms' collection se unique room ID nikalna
 async function resolveRoomContext(cleanChannel, cleanUserId, cleanPartnerId) {
   let roomDoc = null;
   try {
@@ -72,7 +71,8 @@ export async function POST(req) {
       viewerPfp,
       viewTime,
       callItem,
-      callId
+      callId,
+      emoji
     } = body;
 
     const cleanUserId = String(userId || "").trim();
@@ -89,11 +89,7 @@ export async function POST(req) {
     if (action === "UPDATE_PROFILE_IMAGE") {
       await RoomProfile.findOneAndUpdate(
         { roomKey: roomKey, userId: cleanUserLower },
-        {
-          channel: cleanChannel,
-          profileImage: profileImage || "",
-          updatedAt: new Date()
-        },
+        { channel: cleanChannel, profileImage: profileImage || "", updatedAt: new Date() },
         { upsert: true, new: true }
       );
       return NextResponse.json({ success: true, roomKey: roomKey });
@@ -104,20 +100,11 @@ export async function POST(req) {
       const now = Date.now();
       const validStatuses = (existing?.statuses || []).filter((s) => (now - s.time) < TWENTY_FOUR_HOURS);
       validStatuses.push({
-        id: String(statusItem.id || Date.now()),
-        image: statusItem.image,
-        text: statusItem.text || "",
-        time: Number(statusItem.time || now),
-        seenBy: []
+        id: String(statusItem.id || Date.now()), image: statusItem.image, text: statusItem.text || "", time: Number(statusItem.time || now), seenBy: []
       });
-
       await RoomProfile.findOneAndUpdate(
         { roomKey: roomKey, userId: cleanUserLower },
-        {
-          channel: cleanChannel,
-          statuses: validStatuses,
-          updatedAt: new Date()
-        },
+        { channel: cleanChannel, statuses: validStatuses, updatedAt: new Date() },
         { upsert: true, new: true }
       );
       return NextResponse.json({ success: true, statuses: validStatuses });
@@ -126,11 +113,7 @@ export async function POST(req) {
     if (action === "DELETE_STATUS" && statusId) {
       const existing = await RoomProfile.findOne({ roomKey: roomKey, userId: cleanUserLower });
       const updatedStatuses = (existing?.statuses || []).filter((s) => String(s.id) !== String(statusId));
-      await RoomProfile.findOneAndUpdate(
-        { roomKey: roomKey, userId: cleanUserLower },
-        { statuses: updatedStatuses, updatedAt: new Date() },
-        { upsert: true }
-      );
+      await RoomProfile.findOneAndUpdate({ roomKey: roomKey, userId: cleanUserLower }, { statuses: updatedStatuses, updatedAt: new Date() }, { upsert: true });
       return NextResponse.json({ success: true, statuses: updatedStatuses });
     }
 
@@ -141,27 +124,15 @@ export async function POST(req) {
         const newStatuses = partnerProf.statuses.map((st) => {
           if (String(st.id) === String(statusId)) {
             const seenList = Array.isArray(st.seenBy) ? st.seenBy : [];
-            const alreadySeen = seenList.some((v) => String(v.userId).toLowerCase() === cleanUserLower);
-            if (!alreadySeen) {
+            if (!seenList.some((v) => String(v.userId).toLowerCase() === cleanUserLower)) {
               updated = true;
-              seenList.push({
-                userId: cleanUserLower,
-                name: viewerName || cleanUserId,
-                pfp: viewerPfp || "/cat.png",
-                time: viewTime || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-              });
+              seenList.push({ userId: cleanUserLower, name: viewerName || cleanUserId, pfp: viewerPfp || "/cat.png", time: viewTime || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) });
             }
             return { ...(st.toObject ? st.toObject() : st), seenBy: seenList };
           }
           return st;
         });
-
-        if (updated) {
-          await RoomProfile.findOneAndUpdate(
-            { roomKey: roomKey, userId: cleanPartnerLower },
-            { statuses: newStatuses, updatedAt: new Date() }
-          );
-        }
+        if (updated) await RoomProfile.findOneAndUpdate({ roomKey: roomKey, userId: cleanPartnerLower }, { statuses: newStatuses, updatedAt: new Date() });
       }
       return NextResponse.json({ success: true });
     }
@@ -169,27 +140,19 @@ export async function POST(req) {
     if (action === "ADD_CALL_LOG" && callItem) {
       const existing = await RoomProfile.findOne({ roomKey: roomKey, userId: cleanUserLower });
       const logs = [callItem, ...(existing?.callLogs || [])].slice(0, 30);
-      await RoomProfile.findOneAndUpdate(
-        { roomKey: roomKey, userId: cleanUserLower },
-        { channel: cleanChannel, callLogs: logs, updatedAt: new Date() },
-        { upsert: true }
-      );
+      await RoomProfile.findOneAndUpdate({ roomKey: roomKey, userId: cleanUserLower }, { channel: cleanChannel, callLogs: logs, updatedAt: new Date() }, { upsert: true });
       return NextResponse.json({ success: true, callLogs: logs });
     }
 
     if (action === "DELETE_CALL_LOG" && callId) {
       const existing = await RoomProfile.findOne({ roomKey: roomKey, userId: cleanUserLower });
       const logs = (existing?.callLogs || []).filter((c) => String(c.id) !== String(callId));
-      await RoomProfile.findOneAndUpdate(
-        { roomKey: roomKey, userId: cleanUserLower },
-        { callLogs: logs, updatedAt: new Date() },
-        { upsert: true }
-      );
+      await RoomProfile.findOneAndUpdate({ roomKey: roomKey, userId: cleanUserLower }, { callLogs: logs, updatedAt: new Date() }, { upsert: true });
       return NextResponse.json({ success: true, callLogs: logs });
     }
 
     // =========================================================================
-    // 2. HANDLE MESSAGE PIN / UNPIN / DELETE ACTIONS IN MONGODB
+    // 2. HANDLE MESSAGE PIN / UNPIN / DELETE / REACT ACTIONS IN MONGODB
     // =========================================================================
     if (action && msgId) {
       let targetDoc = null;
@@ -200,16 +163,12 @@ export async function POST(req) {
       if (targetDoc) {
         if (action === "DELETE_ME") {
           const currentDeletedFor = Array.isArray(targetDoc.deletedFor) ? [...targetDoc.deletedFor] : [];
-          if (!currentDeletedFor.includes(cleanUserLower)) {
-            currentDeletedFor.push(cleanUserLower);
-          }
+          if (!currentDeletedFor.includes(cleanUserLower)) currentDeletedFor.push(cleanUserLower);
           targetDoc.deletedFor = currentDeletedFor;
           await targetDoc.save();
         } else if (action === "DELETE_EVERYONE") {
           targetDoc.isDeleted = true;
-          if (deletedEncryptedText) {
-            targetDoc.encryptedText = deletedEncryptedText;
-          }
+          if (deletedEncryptedText) targetDoc.encryptedText = deletedEncryptedText;
           await targetDoc.save();
         } else if (action === "PIN") {
           targetDoc.isPinned = true;
@@ -219,6 +178,15 @@ export async function POST(req) {
           targetDoc.isPinned = false;
           targetDoc.pinnedUntil = null;
           await targetDoc.save();
+        } else if (action === "REACT") {
+          // 🔥 Reactions saving to database properly
+          const currentReactions = targetDoc.get('reactions') || {};
+          if (emoji) {
+            currentReactions[cleanUserLower] = emoji;
+          } else {
+            delete currentReactions[cleanUserLower];
+          }
+          await Message.findByIdAndUpdate(targetDoc._id, { $set: { reactions: currentReactions } });
         }
       }
       return NextResponse.json({ success: true });
@@ -229,8 +197,6 @@ export async function POST(req) {
     // =========================================================================
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    // Agar naya room abhi bana hai toh purane room ke messages mat dikhao
     const minDate = roomCreatedAt && roomCreatedAt > sevenDaysAgo ? roomCreatedAt : sevenDaysAgo;
 
     const allMessages = await Message.find({}).sort({ createdAt: 1 });
@@ -243,17 +209,11 @@ export async function POST(req) {
 
       const sLower = String(msg.senderId || "").trim().toLowerCase();
       const rLower = String(msg.receiverId || "").trim().toLowerCase();
-
-      const isUserMatch = cleanPartnerLower
-        ? (sLower === cleanUserLower && rLower === cleanPartnerLower) ||
-          (sLower === cleanPartnerLower && rLower === cleanUserLower)
-        : sLower === cleanUserLower || rLower === cleanUserLower;
-
+      const isUserMatch = cleanPartnerLower ? (sLower === cleanUserLower && rLower === cleanPartnerLower) || (sLower === cleanPartnerLower && rLower === cleanUserLower) : sLower === cleanUserLower || rLower === cleanUserLower;
+      
       if (!isUserMatch) continue;
 
-      const delForList = Array.isArray(msg.deletedFor)
-        ? msg.deletedFor.map((u) => String(u).toLowerCase())
-        : [];
+      const delForList = Array.isArray(msg.deletedFor) ? msg.deletedFor.map((u) => String(u).toLowerCase()) : [];
       if (delForList.includes(cleanUserLower)) continue;
 
       if (msg.isPinned && msg.pinnedUntil && new Date(msg.pinnedUntil) <= nowDate) {
@@ -261,16 +221,12 @@ export async function POST(req) {
         msg.pinnedUntil = null;
         await msg.save().catch(() => {});
       }
-
       visibleMessages.push(msg);
     }
 
-    // Fetch My Profile & Partner Profile for this specific RoomKey
     const nowMs = Date.now();
     const myProfDoc = await RoomProfile.findOne({ roomKey: roomKey, userId: cleanUserLower });
-    const partnerProfDoc = cleanPartnerLower
-      ? await RoomProfile.findOne({ roomKey: roomKey, userId: cleanPartnerLower })
-      : null;
+    const partnerProfDoc = cleanPartnerLower ? await RoomProfile.findOne({ roomKey: roomKey, userId: cleanPartnerLower }) : null;
 
     const cleanStatuses = async (profDoc) => {
       if (!profDoc || !Array.isArray(profDoc.statuses)) return [];
@@ -289,15 +245,8 @@ export async function POST(req) {
       success: true,
       roomKey: roomKey,
       messages: visibleMessages,
-      myProfile: {
-        profileImage: myProfDoc?.profileImage || "",
-        statuses: myValidStatuses,
-        callLogs: myProfDoc?.callLogs || []
-      },
-      partnerProfile: {
-        profileImage: partnerProfDoc?.profileImage || "",
-        statuses: partnerValidStatuses
-      }
+      myProfile: { profileImage: myProfDoc?.profileImage || "", statuses: myValidStatuses, callLogs: myProfDoc?.callLogs || [] },
+      partnerProfile: { profileImage: partnerProfDoc?.profileImage || "", statuses: partnerValidStatuses }
     });
   } catch (error) {
     console.error("Fetch/Update Error:", error);
