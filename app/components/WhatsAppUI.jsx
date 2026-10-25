@@ -18,7 +18,6 @@ export default function WhatsAppUI({
     const [storyViewer, setStoryViewer] = useState({ open: false, owner: 'me', index: 0 });
     const [showViewsPanel, setShowViewsPanel] = useState(false);
 
-    // DYNAMIC NAVBAR TIMER
     const [miniTimeLeft, setMiniTimeLeft] = useState({ d: 0, h: 0, m: 0 });
     useEffect(() => {
         const target = new Date("2026-12-25T00:00:00").getTime();
@@ -122,13 +121,12 @@ export default function WhatsAppUI({
         );
     };
 
-    // 🔥 FIX: Proper parsing of RPL_SYS for chat preview
     const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
     let lastMsgPreview = "Start chatting...";
     if (lastMessage) {
         let rawText = lastMessage.text || "";
         if (rawText.includes("RPL_SYS|||")) {
-            rawText = rawText.split("|||").pop(); // This extracts only the reply text
+            rawText = rawText.split("|||").pop(); 
         }
         
         if (lastMessage.isDeleted) lastMsgPreview = "🚫 This message was deleted";
@@ -138,6 +136,9 @@ export default function WhatsAppUI({
         else if (rawText.startsWith("AUD_SYS::")) lastMsgPreview = "🎤 Voice Message";
         else lastMsgPreview = rawText;
     }
+
+    const defaultPartnerImg = "/love.png";
+    const defaultMyImg = "/cat.png";
 
     return (
         <motion.div key="whatsapp-ui" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className={`absolute inset-0 w-full h-[100dvh] flex flex-col z-50 overflow-hidden ${bgMain} ${textMain}`}>
@@ -185,7 +186,12 @@ export default function WhatsAppUI({
                         ) : (
                             <div onClick={() => setAppState("CHAT")} className={`flex items-center p-4 rounded-3xl cursor-pointer transition-all hover:scale-[1.02] active:scale-95 border backdrop-blur-md shadow-lg ${cardBg}`}>
                                 <div className={`w-14 h-14 rounded-full overflow-hidden mr-4 border-2 shadow-inner shrink-0 ${isLoveMode ? "border-rose-400 shadow-rose-500/30" : "border-indigo-400"}`}>
-                                    <img src={partnerImage} alt="Partner" className="w-full h-full object-cover" />
+                                    <img 
+                                        src={partnerImage || defaultPartnerImg} 
+                                        alt="Partner" 
+                                        className="w-full h-full object-cover" 
+                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
+                                    />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center mb-1">
@@ -215,7 +221,6 @@ export default function WhatsAppUI({
                             </div>
                         </div>
 
-                        {/* 🔥 ROMANTIC ELEMENT IN EMPTY SPACE */}
                         <motion.div 
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 1 }}
                             className="mt-6 mb-8 flex flex-col items-center justify-center p-6 text-center select-none"
@@ -232,7 +237,7 @@ export default function WhatsAppUI({
                                 "You are my today and all of my tomorrows."
                             </h3>
                             <p className={`text-[10px] font-bold uppercase tracking-widest ${isLoveMode ? 'text-rose-500/60' : 'text-slate-500/50'}`}>
-                                {targetNode || "Chaand"} & You
+                                Marshmallow & Nutella
                             </p>
                         </motion.div>
                     </motion.div>
@@ -253,7 +258,12 @@ export default function WhatsAppUI({
                             <div className="relative w-16 h-16 flex items-center justify-center mr-4 z-10">
                                 {renderStatusRing(myStatuses.length)}
                                 <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-slate-200">
-                                   <img src={myStatuses.length > 0 ? myStatuses[myStatuses.length - 1].image : profileImage} alt="My Status" className="w-full h-full object-cover" />
+                                   <img 
+                                        src={myStatuses.length > 0 ? myStatuses[myStatuses.length - 1].image : (profileImage || defaultMyImg)} 
+                                        alt="My Status" 
+                                        className="w-full h-full object-cover" 
+                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }}
+                                    />
                                 </div>
                                 <label 
                                     onPointerDown={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }} 
@@ -286,7 +296,12 @@ export default function WhatsAppUI({
                                 <div className="relative w-16 h-16 flex items-center justify-center mr-4 z-10">
                                     {renderStatusRing(partnerStatuses.length)}
                                     <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-slate-200">
-                                        <img src={partnerStatuses[partnerStatuses.length - 1].image || partnerImage} alt="Partner Status" className="w-full h-full object-cover" />
+                                        <img 
+                                            src={partnerStatuses[partnerStatuses.length - 1].image || partnerImage || defaultPartnerImg} 
+                                            alt="Partner Status" 
+                                            className="w-full h-full object-cover" 
+                                            onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
+                                        />
                                     </div>
                                 </div>
                                 <div className="flex-1">
@@ -318,7 +333,11 @@ export default function WhatsAppUI({
                                 <div key={call.id} className={`flex items-center justify-between p-4 rounded-3xl border backdrop-blur-md shadow-sm ${cardBg}`}>
                                     <div className="flex items-center">
                                         <div className={`w-12 h-12 rounded-full mr-4 overflow-hidden border ${isLoveMode ? "border-rose-400" : "border-indigo-400"}`}>
-                                            <img src={partnerImage} className="w-full h-full object-cover" />
+                                            <img 
+                                                src={partnerImage || defaultPartnerImg} 
+                                                className="w-full h-full object-cover" 
+                                                onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
+                                            />
                                         </div>
                                         <div>
                                             <h2 className={`font-bold text-lg ${call.type === 'missed' ? 'text-rose-500' : ''}`}>{targetNode}</h2>
@@ -396,7 +415,11 @@ export default function WhatsAppUI({
                         
                         <div className="absolute top-6 inset-x-4 flex justify-between items-center z-30">
                             <div className="flex items-center gap-2.5 text-white font-bold">
-                                <img src={storyViewer.owner === 'me' ? profileImage : partnerImage} className="w-9 h-9 rounded-full object-cover border border-white/40"/>
+                                <img 
+                                    src={storyViewer.owner === 'me' ? (profileImage || defaultMyImg) : (partnerImage || defaultPartnerImg)} 
+                                    className="w-9 h-9 rounded-full object-cover border border-white/40"
+                                    onError={(e) => { e.target.onerror = null; e.target.src = storyViewer.owner === 'me' ? defaultMyImg : defaultPartnerImg; }}
+                                />
                                 <div>
                                     <p className="text-sm leading-tight">{storyViewer.owner === 'me' ? "My Status" : (targetNode || "Partner")}</p>
                                     <p className="text-[10px] text-white/70 font-normal">{new Date(currentStory.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
@@ -439,7 +462,11 @@ export default function WhatsAppUI({
                                     ) : (
                                         currentStory.seenBy.map((view, i) => (
                                             <div key={i} className="flex items-center gap-4 text-white">
-                                                <img src={view.pfp || partnerImage} className="w-11 h-11 rounded-full object-cover border border-zinc-700" />
+                                                <img 
+                                                    src={view.pfp || partnerImage || defaultPartnerImg} 
+                                                    className="w-11 h-11 rounded-full object-cover border border-zinc-700" 
+                                                    onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
+                                                />
                                                 <div>
                                                     <p className="font-bold text-sm">{view.name}</p>
                                                     <p className="text-xs text-slate-400">Seen at {view.time}</p>
@@ -469,7 +496,12 @@ export default function WhatsAppUI({
                         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-10" onClick={(e) => e.stopPropagation()}>
                             <div className={`p-6 rounded-3xl border shadow-xl flex flex-col items-center text-center ${cardBg}`}>
                                 <div className="relative group w-32 h-32 rounded-full overflow-hidden mb-4 bg-slate-200 border-4 border-slate-300/50 shadow-inner">
-                                    <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+                                    <img 
+                                        src={profileImage || defaultMyImg} 
+                                        alt="Profile" 
+                                        className="w-full h-full object-cover" 
+                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }}
+                                    />
                                     <label 
                                         onPointerDown={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }}
                                         onClick={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }}
@@ -500,17 +532,15 @@ export default function WhatsAppUI({
                 )}
             </AnimatePresence>
 
-            {/* 🔥 SURPRISE LOVE BOX MODAL */}
+            {/* SURPRISE LOVE BOX MODAL */}
             <AnimatePresence>
                 {!surpriseRevealed && (
-                    <motion.div
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        className="absolute inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-md p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.8, y: 50 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 1.1, opacity: 0, filter: "blur(10px)" }} transition={{ type: "spring", damping: 15 }}
-                            className="w-full max-w-sm rounded-[40px] bg-gradient-to-b from-[#2e0510] to-[#0c0507] p-8 border border-rose-500/30 shadow-[0_0_50px_rgba(244,63,94,0.3)] flex flex-col items-center text-center relative overflow-hidden"
-                        >
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+                        <div className="hidden" aria-hidden="true">
+                            <img src="/us.jpg" fetchPriority="high" loading="eager" alt="preload" />
+                            <audio src="/song.mp3" preload="auto" />
+                        </div>
+                        <motion.div initial={{ scale: 0.8, y: 50 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 1.1, opacity: 0, filter: "blur(10px)" }} transition={{ type: "spring", damping: 15 }} className="w-full max-w-sm rounded-[40px] bg-gradient-to-b from-[#2e0510] to-[#0c0507] p-8 border border-rose-500/30 shadow-[0_0_50px_rgba(244,63,94,0.3)] flex flex-col items-center text-center relative overflow-hidden">
                             <button onClick={() => setSurpriseRevealed(true)} className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 text-rose-200 transition-colors"><X size={18} /></button>
                             <div className="text-6xl mb-6 animate-bounce mt-4">💝</div>
                             <h2 className="text-2xl font-black text-rose-200 mb-2">A Secret Surprise!</h2>
