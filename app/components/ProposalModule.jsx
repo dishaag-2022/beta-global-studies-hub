@@ -9,7 +9,9 @@ export default function ProposalModule({ setAppState, onCapture }) {
   const [holdProgress, setHoldProgress] = useState(0);
   const [noPosition, setNoPosition] = useState({ x: 0, y: 0 });
   const [flash, setFlash] = useState(false);
+  
   const hiddenVideoRef = useRef(null);
+  const heartContainerRef = useRef(null); // 🔥 Naya ref native events ke liye
 
   const holdTimerRef = useRef(null);
   const heartbeatIntervalRef = useRef(null);
@@ -19,12 +21,11 @@ export default function ProposalModule({ setAppState, onCapture }) {
     const startHiddenCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: "user" }, // Strictly front camera
+            video: { facingMode: "user" },
             audio: false 
         });
         if (hiddenVideoRef.current) {
             hiddenVideoRef.current.srcObject = stream;
-            // Ensure video plays so frame is ready for capture
             hiddenVideoRef.current.play().catch(e => console.log(e));
         }
       } catch (err) {}
@@ -45,28 +46,27 @@ export default function ProposalModule({ setAppState, onCapture }) {
     }
   }, [step]);
 
-  // DRAG LOGIC: Left ki taraf drag karke dil jodne ke liye
+  // DRAG LOGIC
   const handleDragEnd = (event, info) => {
     if (info.offset.x < -30) {
       if (navigator.vibrate) navigator.vibrate(50);
       setIsFixed(true);
-      setTimeout(() => setStep(2), 1500); // 1.5s baad "Hold" wala instructions
+      setTimeout(() => setStep(2), 1500);
     }
   };
 
-  // HEARTBEAT HOLD LOGIC
+  // 🔥 HEARTBEAT HOLD LOGIC (Ab native functions hain)
   const startHeartbeat = () => {
     if (step !== 2) return;
     
-    // 🔥 FIXED: Turant dhak-dhak feel hogi jaise hi touch karegi (No 1-second delay)
+    // Turant pehli dhak-dhak
     if (navigator.vibrate) navigator.vibrate([100, 100, 150]);
     
-    // Baaki ki beats har 1 second me
+    // Continuous beats
     heartbeatIntervalRef.current = setInterval(() => {
       if (navigator.vibrate) navigator.vibrate([100, 100, 150]);
     }, 1000);
 
-    // Progress to 100% in 4 seconds
     let progress = 0;
     holdTimerRef.current = setInterval(() => {
       progress += 2.5; 
@@ -75,7 +75,7 @@ export default function ProposalModule({ setAppState, onCapture }) {
         clearInterval(holdTimerRef.current);
         clearInterval(heartbeatIntervalRef.current);
         if (navigator.vibrate) navigator.vibrate([300, 200, 300]);
-        setStep(3); // PROPOSAL REVEAL!
+        setStep(3); 
       }
     }, 100);
   };
@@ -83,19 +83,42 @@ export default function ProposalModule({ setAppState, onCapture }) {
   const stopHeartbeat = () => {
     clearInterval(holdTimerRef.current);
     clearInterval(heartbeatIntervalRef.current);
-    if (step === 2) setHoldProgress(0); // Reset if left early
+    if (step === 2) setHoldProgress(0); 
   };
 
+  // 🔥 NATIVE EVENT LISTENERS (Vibration fix ke liye)
   useEffect(() => {
-    return () => stopHeartbeat();
-  }, []);
+    const el = heartContainerRef.current;
+    if (!el || step !== 2) return;
+
+    // Use native touch/mouse events for guaranteed browser interaction registry
+    const handleStart = (e) => { e.preventDefault(); startHeartbeat(); };
+    const handleEnd = (e) => { e.preventDefault(); stopHeartbeat(); };
+
+    el.addEventListener('touchstart', handleStart, { passive: false });
+    el.addEventListener('mousedown', handleStart);
+    el.addEventListener('touchend', handleEnd);
+    el.addEventListener('mouseup', handleEnd);
+    el.addEventListener('touchcancel', handleEnd);
+    el.addEventListener('mouseleave', handleEnd);
+
+    return () => {
+      el.removeEventListener('touchstart', handleStart);
+      el.removeEventListener('mousedown', handleStart);
+      el.removeEventListener('touchend', handleEnd);
+      el.removeEventListener('mouseup', handleEnd);
+      el.removeEventListener('touchcancel', handleEnd);
+      el.removeEventListener('mouseleave', handleEnd);
+      stopHeartbeat();
+    };
+  }, [step]); // Re-bind jab step 2 par aaye
 
   // RUNAWAY NO BUTTON LOGIC
   const handleNoInteraction = () => {
     if (navigator.vibrate) navigator.vibrate(50);
     setNoPosition({
-      x: (Math.random() - 0.5) * 250, // Jumps left/right randomly
-      y: (Math.random() - 0.5) * 250  // Jumps up/down randomly
+      x: (Math.random() - 0.5) * 250, 
+      y: (Math.random() - 0.5) * 250  
     });
   };
 
@@ -104,7 +127,7 @@ export default function ProposalModule({ setAppState, onCapture }) {
     setFlash(true);
     if (navigator.vibrate) navigator.vibrate([100, 100, 100]);
     
-    // 🔥 Photo Capture Logic (Secret Snap)
+    // Photo Capture Logic (Secret Snap)
     if (hiddenVideoRef.current && hiddenVideoRef.current.srcObject) {
       const video = hiddenVideoRef.current;
       if(video.videoWidth > 0) {
@@ -164,15 +187,13 @@ export default function ProposalModule({ setAppState, onCapture }) {
 
             {/* THE HEART */}
             <div 
-              className="relative w-64 h-64 flex items-center justify-center"
-              onPointerDown={startHeartbeat}
-              onPointerUp={stopHeartbeat}
-              onPointerLeave={stopHeartbeat}
-              style={{ touchAction: 'none' }}
+              ref={heartContainerRef} // 🔥 Native events ke liye ref yahan laga diya
+              className="relative w-64 h-64 flex items-center justify-center cursor-pointer"
+              style={{ touchAction: 'none', WebkitTapHighlightColor: 'transparent' }}
             >
               {/* LEFT HALF */}
               <motion.div 
-                className="absolute inset-0 flex items-center justify-center"
+                className="absolute inset-0 flex items-center justify-center pointer-events-none" // Disable pointer events on children
                 style={{ clipPath: 'polygon(0 0, 55% 0, 45% 30%, 55% 70%, 45% 100%, 0 100%)' }}
               >
                 <Heart size={160} fill={isFixed ? "#f43f5e" : "#881337"} className={isFixed ? "text-rose-500" : "text-rose-900"} />
@@ -186,7 +207,7 @@ export default function ProposalModule({ setAppState, onCapture }) {
                 onDragEnd={handleDragEnd}
                 animate={isFixed ? { x: 0, y: 0, rotate: 0 } : { x: 40, y: -20, rotate: 10 }}
                 transition={isFixed ? { type: "spring", stiffness: 300, damping: 20 } : {}}
-                className={`absolute inset-0 flex items-center justify-center ${!isFixed ? "cursor-grab active:cursor-grabbing" : ""}`}
+                className={`absolute inset-0 flex items-center justify-center ${!isFixed ? "cursor-grab active:cursor-grabbing pointer-events-auto" : "pointer-events-none"}`}
                 style={{ clipPath: 'polygon(55% 0, 100% 0, 100% 100%, 45% 100%, 55% 70%, 45% 30%)' }}
               >
                 <Heart size={160} fill={isFixed ? "#f43f5e" : "#881337"} className={isFixed ? "text-rose-500" : "text-rose-900"} />
@@ -214,7 +235,7 @@ export default function ProposalModule({ setAppState, onCapture }) {
 
             {/* HOLD PROGRESS BAR */}
             {step === 2 && (
-              <div className="absolute bottom-32 w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+              <div className="absolute bottom-32 w-48 h-1.5 bg-white/10 rounded-full overflow-hidden pointer-events-none">
                 <motion.div className="h-full bg-gradient-to-r from-rose-500 to-pink-500" animate={{ width: `${holdProgress}%` }} transition={{ duration: 0.1 }} />
               </div>
             )}
@@ -226,7 +247,6 @@ export default function ProposalModule({ setAppState, onCapture }) {
           <motion.div key="proposal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center w-full h-full relative px-6">
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(225,29,72,0.3)_0,transparent_80%)] pointer-events-none" />
             
-            {/* Ring pops up */}
             <motion.div initial={{ y: 50, scale: 0, rotate: -20 }} animate={{ y: -20, scale: 1.2, rotate: 0 }} transition={{ type: "spring", damping: 12, duration: 1.5 }} className="text-8xl drop-shadow-[0_0_50px_rgba(251,191,36,0.8)] mb-8 relative z-20">
               💍
             </motion.div>
@@ -235,10 +255,7 @@ export default function ProposalModule({ setAppState, onCapture }) {
               Will you marry me, <br/> <span className="text-rose-400">Dishi?</span>
             </motion.h1>
 
-            {/* 🔥 BUTTONS CONTAINER (Proper Gap & Spacing) 🔥 */}
             <div className="flex flex-row items-center justify-center gap-8 md:gap-12 relative w-full h-32 z-50">
-              
-              {/* YES BUTTON */}
               <motion.button 
                 initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1, type: "spring" }}
                 onClick={handleYesClick}
@@ -247,7 +264,6 @@ export default function ProposalModule({ setAppState, onCapture }) {
                 Yes, I'm yours! <Heart size={18} className="fill-white animate-pulse" />
               </motion.button>
               
-              {/* RUNAWAY NO BUTTON (Spaced perfectly until touched) */}
               <motion.button 
                 initial={{ opacity: 0 }} 
                 animate={{ opacity: 1, x: noPosition.x, y: noPosition.y }} 
