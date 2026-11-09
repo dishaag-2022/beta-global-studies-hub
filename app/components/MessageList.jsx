@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCheck, Play, Pin, Trash2, XCircle, X, Clock } from 'lucide-react';
 
-const FloatingHearts = () => {
+const FloatingHearts = React.memo(() => {
   const [hearts, setHearts] = useState([]);
   useEffect(() => { setHearts(Array.from({ length: 15 }).map(() => ({ id: Math.random(), size: Math.random() * 15 + 10, left: Math.random() * 100, delay: Math.random() * 5, duration: Math.random() * 6 + 6 }))); }, []);
   return (
@@ -11,9 +11,9 @@ const FloatingHearts = () => {
       {hearts.map((h) => <div key={h.id} className="css-heart drop-shadow-md" style={{ left: `${h.left}%`, fontSize: `${h.size}px`, animationDuration: `${h.duration}s`, animationDelay: `${h.delay}s` }}>{Math.random() > 0.5 ? "❤️" : "💖"}</div>)}
     </div>
   );
-};
+});
 
-const SendBurst = () => <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: [1, 2.5], opacity: [1, 0] }} transition={{ duration: 0.6, ease: "easeOut" }} className="absolute inset-0 pointer-events-none flex items-center justify-center z-0 text-4xl drop-shadow-lg">💖</motion.div>;
+const SendBurst = React.memo(() => <motion.div initial={{ scale: 0, opacity: 1 }} animate={{ scale: [1, 2.5], opacity: [1, 0] }} transition={{ duration: 0.6, ease: "easeOut" }} className="absolute inset-0 pointer-events-none flex items-center justify-center z-0 text-4xl drop-shadow-lg">💖</motion.div>);
 
 const isSameDay = (d1, d2) => d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
 const formatDateLabel = (timestamp) => {
@@ -23,7 +23,21 @@ const formatDateLabel = (timestamp) => {
     return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-const MessageBubble = ({ 
+// 🔥 OPTIMIZATION 1: Custom equality check to prevent re-rendering old messages
+const areBubblesEqual = (prev, next) => {
+  return (
+    prev.msg._id === next.msg._id &&
+    prev.msg.text === next.msg.text &&
+    prev.msg.isDeleted === next.msg.isDeleted &&
+    prev.msg.isPinned === next.msg.isPinned &&
+    JSON.stringify(prev.msg.reactions) === JSON.stringify(next.msg.reactions) &&
+    prev.highlightedMsgId === next.highlightedMsgId &&
+    prev.activeReactionMsg === next.activeReactionMsg
+  );
+};
+
+// 🔥 OPTIMIZATION 2: MessageBubble is wrapped in React.memo
+const MessageBubble = React.memo(({ 
   msg, isMe, showAvatar, isDarkMode, isLoveMode, setExpandedImage, setReplyTo, handleReaction, handleMessageAction,
   activeReactionMsg, setActiveReactionMsg, setPinModalMsg, highlightedMsgId
 }) => {
@@ -45,7 +59,6 @@ const MessageBubble = ({
   
   let mediaUrl = isMedia ? content.split("::")[1] : null;
 
-  // 🔥 FAST CLOUDINARY LOAD (Auto compress & format)
   if (mediaUrl && mediaUrl.includes('/upload/')) {
       if (isVideo) mediaUrl = mediaUrl.replace('/upload/', '/upload/f_mp4,vc_auto,q_auto,w_400/');
       else if (isImage) mediaUrl = mediaUrl.replace('/upload/', '/upload/q_auto,f_auto,w_500/');
@@ -132,9 +145,10 @@ const MessageBubble = ({
       </div>
     </motion.div>
   );
-};
+}, areBubblesEqual);
 
-export default function MessageList({
+// 🔥 OPTIMIZATION 3: Memoizing the entire MessageList component
+export default React.memo(function MessageList({
   messages, isDarkMode, isLoveMode, expandedImage, setExpandedImage,
   isPeerActive, isPeerTyping, chatContainerRef, setReplyTo, handleReaction, handleMessageAction
 }) {
@@ -155,30 +169,33 @@ export default function MessageList({
     }
   }, [messages.length, chatContainerRef]);
 
-  const activePinned = [...messages].reverse().find(m => m.isPinned && !m.isDeleted && (!m.pinnedUntil || new Date(m.pinnedUntil).getTime() > Date.now()));
+  // 🔥 OPTIMIZATION 4: useMemo for computing the active pinned message so it doesn't recalculate on every keystroke
+  const activePinned = useMemo(() => {
+    return [...messages].reverse().find(m => m.isPinned && !m.isDeleted && (!m.pinnedUntil || new Date(m.pinnedUntil).getTime() > Date.now()));
+  }, [messages]);
 
   const currentBg = isLoveMode 
     ? "linear-gradient(rgba(46, 5, 20, 0.75), rgba(46, 5, 20, 0.75)), url('/dishaag.png')" 
     : (isDarkMode ? "linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.4)), url('/dishaag.png')" : "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1)), url('/dishaag.png')");
   const currentSize = "cover";
 
-  const getPinnedPreview = (text = "") => {
+  const getPinnedPreview = useCallback((text = "") => {
     let clean = text; if (clean.includes("RPL_SYS|||")) clean = clean.split("|||").pop() || "";
     if (clean.startsWith("IMG_SYS::")) return "📷 Photo"; if (clean.startsWith("VID_SYS::")) return "🎥 Video";
     if (clean.startsWith("STK_SYS::")) return "✨ Sticker"; if (clean.startsWith("AUD_SYS::")) return "🎤 Voice Message";
     return clean;
-  };
+  }, []);
 
-  const formatRemainingPinTime = (pinnedUntil) => {
+  const formatRemainingPinTime = useCallback((pinnedUntil) => {
     if (!pinnedUntil) return "Pinned Forever"; const diff = new Date(pinnedUntil).getTime() - Date.now();
     if (diff <= 0) return "Expired"; const hours = Math.ceil(diff / (1000 * 60 * 60));
     if (hours > 24) return `${Math.ceil(hours / 24)}d left`; return `${hours}h left`;
-  };
+  }, []);
 
-  const scrollToPinnedMessage = () => {
+  const scrollToPinnedMessage = useCallback(() => {
     if (!activePinned) return; const key = String(activePinned._id || activePinned.id); const el = document.getElementById(`msg-${key}`);
     if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); setHighlightedMsgId(key); setTimeout(() => setHighlightedMsgId(null), 2000); }
-  };
+  }, [activePinned]);
 
   let lastDateLabel = null; 
 
@@ -201,7 +218,7 @@ export default function MessageList({
         )}
       </AnimatePresence>
 
-      <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-10 space-y-3.5 z-10 scrollbar-hide relative will-change-scroll w-full transition-colors duration-500" style={{ backgroundImage: currentBg, backgroundSize: currentSize, backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundColor: "transparent" }}>
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-10 space-y-3.5 z-10 scrollbar-hide relative w-full transition-colors duration-500" style={{ backgroundImage: currentBg, backgroundSize: currentSize, backgroundPosition: "center", backgroundRepeat: "no-repeat", backgroundColor: "transparent" }}>
         {isLoveMode && <FloatingHearts />}
         <AnimatePresence>
           {messages.map((msg, index) => {
@@ -249,4 +266,4 @@ export default function MessageList({
       </div>
     </div>
   );
-}
+});

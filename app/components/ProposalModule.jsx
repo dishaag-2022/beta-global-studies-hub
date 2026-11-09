@@ -1,35 +1,82 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, Lock, Sparkles, ChevronUp, Camera } from 'lucide-react';
+import { Heart } from 'lucide-react';
 
 export default function ProposalModule({ setAppState }) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(0); // 0: Intro, 1: Puzzle, 2: Fixed, 3: Proposal, 4: Final
+  const [isFixed, setIsFixed] = useState(false);
+  const [holdProgress, setHoldProgress] = useState(0);
   const [noPosition, setNoPosition] = useState({ x: 0, y: 0 });
   const [flash, setFlash] = useState(false);
 
+  const holdTimerRef = useRef(null);
+  const heartbeatIntervalRef = useRef(null);
+
   // Cinematic Text Timings
   useEffect(() => {
-    if (step === 0) setTimeout(() => setStep(1), 3500); // 1st line
-    if (step === 1) setTimeout(() => setStep(2), 3500); // 2nd line
-    if (step === 2) setTimeout(() => setStep(3), 4000); // 3rd line
-    // Step 3 is the Swipe Box
+    if (step === 0) {
+      setTimeout(() => setStep(1), 4000);
+    }
   }, [step]);
 
-  // Runaway NO Button Logic
+  // DRAG LOGIC: Left ki taraf drag karke dil jodne ke liye
+  const handleDragEnd = (event, info) => {
+    if (info.offset.x < -30) {
+      if (navigator.vibrate) navigator.vibrate(50);
+      setIsFixed(true);
+      setTimeout(() => setStep(2), 1500); // 1.5s baad "Hold" wala instructions
+    }
+  };
+
+  // HEARTBEAT HOLD LOGIC
+  const startHeartbeat = () => {
+    if (step !== 2) return;
+    
+    // Vibrate every second
+    heartbeatIntervalRef.current = setInterval(() => {
+      if (navigator.vibrate) navigator.vibrate([100, 100, 150]);
+    }, 1000);
+
+    // Progress to 100% in 4 seconds
+    let progress = 0;
+    holdTimerRef.current = setInterval(() => {
+      progress += 2.5; 
+      setHoldProgress(progress);
+      if (progress >= 100) {
+        clearInterval(holdTimerRef.current);
+        clearInterval(heartbeatIntervalRef.current);
+        if (navigator.vibrate) navigator.vibrate([300, 200, 300]);
+        setStep(3); // PROPOSAL REVEAL!
+      }
+    }, 100);
+  };
+
+  const stopHeartbeat = () => {
+    clearInterval(holdTimerRef.current);
+    clearInterval(heartbeatIntervalRef.current);
+    if (step === 2) setHoldProgress(0); // Reset if left early
+  };
+
+  useEffect(() => {
+    return () => stopHeartbeat();
+  }, []);
+
+  // RUNAWAY NO BUTTON LOGIC
   const handleNoInteraction = () => {
     if (navigator.vibrate) navigator.vibrate(50);
     setNoPosition({
-      x: Math.random() * 250 - 125, // Moves randomly horizontally
-      y: Math.random() * 250 - 125  // Moves randomly vertically
+      x: (Math.random() - 0.5) * 250, // Jumps left/right randomly
+      y: (Math.random() - 0.5) * 250  // Jumps up/down randomly
     });
   };
 
+  // YES BUTTON CLICK LOGIC
   const handleYesClick = () => {
     setFlash(true);
     if (navigator.vibrate) navigator.vibrate([100, 100, 100]);
     setTimeout(() => {
-      setStep(5); // Final romantic screen
+      setStep(4);
       setFlash(false);
     }, 500);
   };
@@ -39,66 +86,98 @@ export default function ProposalModule({ setAppState }) {
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="absolute inset-0 w-full h-[100dvh] bg-[#050002] z-[999] flex flex-col items-center justify-center overflow-hidden font-sans select-none"
     >
-      {/* Background Romantic Music */}
       <audio src="/song.mp3" autoPlay loop className="hidden" />
 
-      {/* FLASH EFFECT FOR CAMERA SNAP */}
+      {/* CAMERA FLASH EFFECT */}
       <AnimatePresence>
         {flash && <motion.div initial={{ opacity: 1 }} animate={{ opacity: 0 }} transition={{ duration: 0.8 }} className="absolute inset-0 bg-white z-[1000]" />}
       </AnimatePresence>
 
       <AnimatePresence mode="wait">
         
-        {/* CINEMATIC TEXTS */}
+        {/* STEP 0: INTRO TEXT */}
         {step === 0 && (
-          <motion.h1 key="text1" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 1 }} className="text-rose-200 text-xl md:text-2xl font-serif italic text-center px-8">
-            "I know things have been hard lately..."
-          </motion.h1>
-        )}
-        
-        {step === 1 && (
-          <motion.h1 key="text2" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 1 }} className="text-rose-200 text-xl md:text-2xl font-serif italic text-center px-8">
-            "I know your Marshmallow messed up..."
-          </motion.h1>
-        )}
-
-        {step === 2 && (
-          <motion.h1 key="text3" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 1 }} className="text-rose-200 text-xl md:text-2xl font-serif italic text-center px-8">
-            "But my today, my tomorrow, and my forever... <br/><br/> make no sense without you."
-          </motion.h1>
-        )}
-
-        {/* SWIPE TO OPEN BOX */}
-        {step === 3 && (
-          <motion.div key="box" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col items-center justify-center h-full w-full relative">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(244,63,94,0.15)_0,transparent_60%)] pointer-events-none" />
-            
-            <motion.div
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={0.2}
-              onDragEnd={(e, info) => {
-                if (info.offset.y < -50) { // If swiped up
-                  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
-                  setStep(4);
-                }
-              }}
-              className="relative cursor-grab active:cursor-grabbing flex items-center justify-center p-8 z-20"
-            >
-              <motion.div animate={{ y: [0, -10, 0] }} transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }} className="text-8xl drop-shadow-[0_0_30px_rgba(244,63,94,0.6)]">
-                🎁
-              </motion.div>
-            </motion.div>
-            
-            <motion.div animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1.5, repeat: Infinity }} className="absolute bottom-32 flex flex-col items-center text-rose-300 gap-2">
-              <ChevronUp size={28} className="animate-bounce" />
-              <p className="text-sm font-bold uppercase tracking-widest">Swipe up to open</p>
-            </motion.div>
+          <motion.div key="intro" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 1 }} className="px-8 text-center">
+            <h1 className="text-rose-200 text-xl md:text-2xl font-serif italic mb-4">"I know I broke us..."</h1>
+            <p className="text-rose-400/80 text-sm tracking-widest uppercase font-bold">Can you fix my heart?</p>
           </motion.div>
         )}
 
-        {/* THE PROPOSAL & RUNAWAY BUTTON */}
-        {step === 4 && (
+        {/* STEP 1 & 2: THE KINTSUGI PUZZLE & HOLD */}
+        {(step === 1 || step === 2) && (
+          <motion.div key="puzzle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 1.5, filter: "blur(10px)" }} className="flex flex-col items-center justify-center h-full w-full relative">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(244,63,94,0.1)_0,transparent_60%)] pointer-events-none" />
+            
+            <div className="absolute top-32 text-center">
+              <h2 className="text-rose-300 font-bold tracking-widest uppercase text-sm mb-2">
+                {step === 1 ? "Drag the piece to fix it" : "You fixed it"}
+              </h2>
+              <p className={`text-xs ${step === 2 ? "text-rose-400 animate-pulse" : "text-rose-400/60"}`}>
+                {step === 1 ? "Some things are more beautiful after they are broken." : "Now press and hold to feel it beat..."}
+              </p>
+            </div>
+
+            {/* THE HEART */}
+            <div 
+              className="relative w-64 h-64 flex items-center justify-center"
+              onPointerDown={startHeartbeat}
+              onPointerUp={stopHeartbeat}
+              onPointerLeave={stopHeartbeat}
+              style={{ touchAction: 'none' }}
+            >
+              {/* LEFT HALF */}
+              <motion.div 
+                className="absolute inset-0 flex items-center justify-center"
+                style={{ clipPath: 'polygon(0 0, 55% 0, 45% 30%, 55% 70%, 45% 100%, 0 100%)' }}
+              >
+                <Heart size={160} fill={isFixed ? "#f43f5e" : "#881337"} className={isFixed ? "text-rose-500" : "text-rose-900"} />
+              </motion.div>
+
+              {/* RIGHT HALF (Draggable) */}
+              <motion.div 
+                drag={!isFixed}
+                dragConstraints={{ top: 0, bottom: 0, left: 0, right: 0 }}
+                dragElastic={0.1}
+                onDragEnd={handleDragEnd}
+                animate={isFixed ? { x: 0, y: 0, rotate: 0 } : { x: 40, y: -20, rotate: 10 }}
+                transition={isFixed ? { type: "spring", stiffness: 300, damping: 20 } : {}}
+                className={`absolute inset-0 flex items-center justify-center ${!isFixed ? "cursor-grab active:cursor-grabbing" : ""}`}
+                style={{ clipPath: 'polygon(55% 0, 100% 0, 100% 100%, 45% 100%, 55% 70%, 45% 30%)' }}
+              >
+                <Heart size={160} fill={isFixed ? "#f43f5e" : "#881337"} className={isFixed ? "text-rose-500" : "text-rose-900"} />
+              </motion.div>
+
+              {/* GOLDEN CRACK */}
+              <AnimatePresence>
+                {isFixed && (
+                  <motion.svg 
+                    initial={{ pathLength: 0, opacity: 0 }} 
+                    animate={{ pathLength: 1, opacity: 1 }} 
+                    transition={{ duration: 1.5, ease: "easeInOut" }}
+                    className="absolute inset-0 w-full h-full pointer-events-none drop-shadow-[0_0_8px_rgba(251,191,36,1)]"
+                  >
+                    <path d="M141 52 L128 90 L141 154 L128 204" fill="none" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  </motion.svg>
+                )}
+              </AnimatePresence>
+
+              {/* HEARTBEAT GLOW */}
+              {step === 2 && holdProgress > 0 && (
+                <motion.div animate={{ scale: [1, 1.2, 1, 1.2, 1] }} transition={{ duration: 1, repeat: Infinity }} className="absolute inset-0 rounded-full bg-rose-500/20 blur-2xl z-[-1]" />
+              )}
+            </div>
+
+            {/* HOLD PROGRESS BAR */}
+            {step === 2 && (
+              <div className="absolute bottom-32 w-48 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <motion.div className="h-full bg-gradient-to-r from-rose-500 to-pink-500" animate={{ width: `${holdProgress}%` }} transition={{ duration: 0.1 }} />
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* STEP 3: PROPOSAL WITH SPACED YES/NO BUTTONS */}
+        {step === 3 && (
           <motion.div key="proposal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center w-full h-full relative px-6">
             <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(225,29,72,0.3)_0,transparent_80%)] pointer-events-none" />
             
@@ -111,22 +190,27 @@ export default function ProposalModule({ setAppState }) {
               Will you marry me, <br/> <span className="text-rose-400">Dishi?</span>
             </motion.h1>
 
-            <div className="flex gap-4 relative w-full justify-center h-20 items-center z-50">
+            {/* 🔥 BUTTONS CONTAINER (Proper Gap & Spacing) 🔥 */}
+            <div className="flex flex-row items-center justify-center gap-8 md:gap-12 relative w-full h-32 z-50">
+              
+              {/* YES BUTTON */}
               <motion.button 
                 initial={{ opacity: 0, scale: 0 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 1, type: "spring" }}
                 onClick={handleYesClick}
-                className="px-8 py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-full font-black uppercase tracking-wider shadow-[0_0_30px_rgba(225,29,72,0.6)] active:scale-95 transition-all text-sm md:text-base flex items-center gap-2"
+                className="px-8 py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-full font-black uppercase tracking-wider shadow-[0_0_30px_rgba(225,29,72,0.6)] active:scale-95 transition-all text-sm md:text-base flex items-center gap-2 relative z-50"
               >
                 Yes, I'm yours! <Heart size={18} className="fill-white animate-pulse" />
               </motion.button>
               
-              {/* RUNAWAY NO BUTTON */}
+              {/* RUNAWAY NO BUTTON (Spaced perfectly until touched) */}
               <motion.button 
-                initial={{ opacity: 0 }} animate={{ opacity: 1, x: noPosition.x, y: noPosition.y }} transition={{ type: "spring", stiffness: 300, damping: 20, opacity: { delay: 1 } }}
+                initial={{ opacity: 0 }} 
+                animate={{ opacity: 1, x: noPosition.x, y: noPosition.y }} 
+                transition={{ type: "spring", stiffness: 300, damping: 20, opacity: { delay: 1 } }}
                 onPointerDown={handleNoInteraction} 
                 onMouseEnter={handleNoInteraction}
-                style={{ touchAction: 'none' }}
-                className="px-6 py-4 bg-zinc-800 text-slate-300 rounded-full font-bold uppercase tracking-wider shadow-lg text-sm md:text-base border border-zinc-700 absolute right-10"
+                style={{ touchAction: 'none', zIndex: 40 }}
+                className="px-8 py-4 bg-zinc-800 text-slate-300 rounded-full font-bold uppercase tracking-wider shadow-lg text-sm md:text-base border border-zinc-700 relative"
               >
                 No 😡
               </motion.button>
@@ -134,8 +218,8 @@ export default function ProposalModule({ setAppState }) {
           </motion.div>
         )}
 
-        {/* FINAL SCREEN (AFTER SAYING YES) */}
-        {step === 5 && (
+        {/* STEP 4: FINAL SCREEN */}
+        {step === 4 && (
           <motion.div key="final" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center w-full h-full text-center relative px-8 z-20">
             <Heart size={64} className="text-rose-500 fill-rose-500 animate-pulse drop-shadow-[0_0_40px_rgba(225,29,72,0.8)] mb-6" />
             <h1 className="text-3xl md:text-4xl font-black text-white mb-4">
