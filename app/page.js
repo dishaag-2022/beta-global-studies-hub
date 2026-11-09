@@ -14,6 +14,7 @@ import ScribbleBoard from "./components/ScribbleBoard";
 import CustomPing from "./components/CustomPing";
 import WhatsAppUI from "./components/WhatsAppUI";
 import AnniversaryPopup from "./components/AnniversaryPopup";
+import ProposalModule from "./components/ProposalModule";
 
 const SECRET_KEY = "tour-404-classified-key";
 const CLOUDINARY_CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -765,7 +766,7 @@ export default function Home() {
     return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
   }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
-  // 🔥 RESTORED SCROLL TO BOTTOM FUNCTION
+  // 🔥 SCROLL TO BOTTOM RESTORED HERE
   const scrollToBottom = () => {
     setTimeout(() => {
       if (chatContainerRef.current) {
@@ -958,6 +959,12 @@ export default function Home() {
       />
 
       <AnimatePresence mode="wait">
+        
+        {/* 🔥 NEW MODULE ADDED HERE WITH PROPER KEY 🔥 */}
+        {appState === "PROPOSAL_MODE" && (
+          <ProposalModule key="proposal" setAppState={setAppState} />
+        )}
+
         {appState === "DECOY" && (
           <motion.div key="decoy" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.3 }} className="absolute inset-0 w-full h-full bg-[#fafbfc] overflow-y-auto">
             <ModernDecoy onTrigger={() => setAppState("PORTAL_LOGIN")} />

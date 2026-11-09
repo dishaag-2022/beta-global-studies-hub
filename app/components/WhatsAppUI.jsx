@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Camera, MoreVertical, MessageSquare, Aperture, Palette, BellRing, X, Phone, Disc, User, Shield, Image as ImageIcon, PhoneIncoming, PhoneOutgoing, Video, Send, Eye, Trash2, Loader2, Heart, Gift } from 'lucide-react';
+import { Search, Camera, MoreVertical, MessageSquare, Aperture, Palette, BellRing, X, Phone, Disc, User, Shield, Image as ImageIcon, PhoneIncoming, PhoneOutgoing, Video, Send, Eye, Trash2, Loader2, Heart, Gift, Lock } from 'lucide-react';
 
 export default function WhatsAppUI({ 
     setAppState, targetNode, isDarkMode, setIsDarkMode, isLoveMode, setIsLoveMode,
     profileImage, setProfileImage, partnerImage, messages = [],
     callLogs = [], setCallLogs, myStatuses = [], setMyStatuses, partnerStatuses = [],
     onUploadProfileImage, onAddStatus, onDeleteStatus, onViewPartnerStatus, onDeleteCallLog,
-    isSavingMedia, ignorePanicRef, surpriseRevealed, setSurpriseRevealed, isFetchingChat 
+    isSavingMedia, ignorePanicRef, isFetchingChat 
 }) {
     const [activeTab, setActiveTab] = useState('chats');
     const [showMenu, setShowMenu] = useState(false);
@@ -143,6 +143,12 @@ export default function WhatsAppUI({
     return (
         <motion.div key="whatsapp-ui" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className={`absolute inset-0 w-full h-[100dvh] flex flex-col z-50 overflow-hidden ${bgMain} ${textMain}`}>
             
+            {/* 🔥 HIDDEN PRELOADER TO KEEP ASSETS READY FOR ANNIVERSARY POPUP */}
+            <div className="hidden" aria-hidden="true">
+                <img src="/us.jpg" fetchPriority="high" loading="eager" alt="preload" />
+                <audio src="/song.mp3" preload="auto" />
+            </div>
+
             <div className={`px-5 py-3 flex justify-between items-center z-20 backdrop-blur-xl border-b shadow-sm ${headerBg}`}>
                 <div className="flex flex-col">
                     <h1 className={`text-2xl font-black tracking-tighter bg-clip-text text-transparent leading-none ${isLoveMode ? "bg-gradient-to-r from-rose-400 to-pink-500" : "bg-gradient-to-r from-indigo-500 to-cyan-500"}`}>
@@ -205,6 +211,29 @@ export default function WhatsAppUI({
 
                         <div className="pt-4">
                             <h3 className={`px-2 mb-3 text-xs font-black uppercase tracking-widest ${textSub}`}>Secret App Modules</h3>
+
+                            {/* 🔥 NEW ATTRACTIVE PROPOSAL BUTTON 🔥 */}
+                            <motion.div 
+                                animate={{ scale: [1, 1.02, 1], boxShadow: ["0 0 0px rgba(244,63,94,0)", "0 0 20px rgba(244,63,94,0.6)", "0 0 0px rgba(244,63,94,0)"] }}
+                                transition={{ duration: 2, repeat: Infinity }}
+                                onClick={() => setAppState("PROPOSAL_MODE")} 
+                                className={`flex items-center p-4 rounded-3xl cursor-pointer active:scale-95 border-2 border-rose-500 bg-gradient-to-r from-[#2e0510] to-[#1a050f] shadow-lg mb-3`}
+                            >
+                                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 flex items-center justify-center mr-4">
+                                    <Lock className="text-rose-400" size={24} />
+                                </div>
+                                <div>
+                                    <h2 className="font-black text-lg text-rose-200 tracking-tight">Strictly Confidential</h2>
+                                    <p className={`text-[10px] font-bold mt-0.5 text-rose-400/80 uppercase tracking-widest`}>Only for Dishi's eyes</p>
+                                </div>
+                                <div className="ml-auto">
+                                    <span className="flex h-3 w-3 relative">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                                    </span>
+                                </div>
+                            </motion.div>
+
                             <div className="grid grid-cols-1 gap-3">
                                 <div onClick={() => setAppState("SNAP_MODE")} className={`flex items-center p-4 rounded-3xl cursor-pointer transition-all hover:scale-[1.02] active:scale-95 border backdrop-blur-md shadow-sm ${cardBg}`}>
                                     <div className="w-12 h-12 rounded-2xl bg-purple-500/10 flex items-center justify-center mr-4"><Aperture className="text-purple-500" size={24} /></div>
@@ -221,6 +250,7 @@ export default function WhatsAppUI({
                             </div>
                         </div>
 
+                        {/* 🔥 ROMANTIC TEXT REVEAL 🔥 */}
                         <motion.div 
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 1 }}
                             className="mt-6 mb-8 flex flex-col items-center justify-center p-6 text-center select-none"
@@ -528,27 +558,6 @@ export default function WhatsAppUI({
                                 </div>
                             </div>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* SURPRISE LOVE BOX MODAL */}
-            <AnimatePresence>
-                {!surpriseRevealed && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
-                        <div className="hidden" aria-hidden="true">
-                            <img src="/us.jpg" fetchPriority="high" loading="eager" alt="preload" />
-                            <audio src="/song.mp3" preload="auto" />
-                        </div>
-                        <motion.div initial={{ scale: 0.8, y: 50 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 1.1, opacity: 0, filter: "blur(10px)" }} transition={{ type: "spring", damping: 15 }} className="w-full max-w-sm rounded-[40px] bg-gradient-to-b from-[#2e0510] to-[#0c0507] p-8 border border-rose-500/30 shadow-[0_0_50px_rgba(244,63,94,0.3)] flex flex-col items-center text-center relative overflow-hidden">
-                            <button onClick={() => setSurpriseRevealed(true)} className="absolute top-4 right-4 p-2 bg-white/10 rounded-full hover:bg-white/20 text-rose-200 transition-colors"><X size={18} /></button>
-                            <div className="text-6xl mb-6 animate-bounce mt-4">💝</div>
-                            <h2 className="text-2xl font-black text-rose-200 mb-2">A Secret Surprise!</h2>
-                            <p className="text-rose-300/80 text-sm mb-8">For my Chaand, something special awaits inside...</p>
-                            <button onClick={() => { setSurpriseRevealed(true); setAppState("ANNIVERSARY_POPUP"); }} className="px-8 py-4 bg-rose-500 text-white rounded-full font-bold tracking-wider uppercase text-sm shadow-[0_0_20px_rgba(244,63,94,0.5)] hover:scale-105 active:scale-95 transition-all flex items-center gap-2">
-                                Click Here <Heart size={16} className="animate-pulse fill-white" />
-                            </button>
-                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
