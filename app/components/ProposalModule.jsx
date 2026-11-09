@@ -58,7 +58,10 @@ export default function ProposalModule({ setAppState, onCapture }) {
   const startHeartbeat = () => {
     if (step !== 2) return;
     
-    // Vibrate every second
+    // 🔥 FIXED: Turant dhak-dhak feel hogi jaise hi touch karegi (No 1-second delay)
+    if (navigator.vibrate) navigator.vibrate([100, 100, 150]);
+    
+    // Baaki ki beats har 1 second me
     heartbeatIntervalRef.current = setInterval(() => {
       if (navigator.vibrate) navigator.vibrate([100, 100, 150]);
     }, 1000);
