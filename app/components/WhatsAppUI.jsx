@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Camera, MoreVertical, MessageSquare, Aperture, Palette, BellRing, X, Phone, Disc, User, Shield, Image as ImageIcon, PhoneIncoming, PhoneOutgoing, Video, Send, Eye, Trash2, Loader2, Heart, Gift, Lock } from 'lucide-react';
+import { Search, Camera, MoreVertical, MessageSquare, Aperture, Palette, BellRing, X, Phone, Disc, User, Shield, Image as ImageIcon, PhoneIncoming, PhoneOutgoing, Video, Send, Eye, Trash2, Loader2, Heart, Gift, Lock, Key } from 'lucide-react';
 
 export default function WhatsAppUI({ 
     setAppState, targetNode, isDarkMode, setIsDarkMode, isLoveMode, setIsLoveMode,
     profileImage, setProfileImage, partnerImage, messages = [],
     callLogs = [], setCallLogs, myStatuses = [], setMyStatuses, partnerStatuses = [],
     onUploadProfileImage, onAddStatus, onDeleteStatus, onViewPartnerStatus, onDeleteCallLog,
-    isSavingMedia, ignorePanicRef, isFetchingChat 
+    isSavingMedia, ignorePanicRef, isFetchingChat,
+    proposalSnaps = [], onDeleteSnap 
 }) {
     const [activeTab, setActiveTab] = useState('chats');
     const [showMenu, setShowMenu] = useState(false);
@@ -17,6 +18,11 @@ export default function WhatsAppUI({
     const [statusCaption, setStatusCaption] = useState("");
     const [storyViewer, setStoryViewer] = useState({ open: false, owner: 'me', index: 0 });
     const [showViewsPanel, setShowViewsPanel] = useState(false);
+    
+    const [isGalleryUnlocked, setIsGalleryUnlocked] = useState(false);
+    const [vaultPassword, setVaultPassword] = useState("");
+    const [showVaultPrompt, setShowVaultPrompt] = useState(false);
+    const [expandedSnap, setExpandedSnap] = useState(null); // 🔥 For full screen view
 
     const [miniTimeLeft, setMiniTimeLeft] = useState({ d: 0, h: 0, m: 0 });
     useEffect(() => {
@@ -143,7 +149,6 @@ export default function WhatsAppUI({
     return (
         <motion.div key="whatsapp-ui" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.98 }} className={`absolute inset-0 w-full h-[100dvh] flex flex-col z-50 overflow-hidden ${bgMain} ${textMain}`}>
             
-            {/* 🔥 HIDDEN PRELOADER TO KEEP ASSETS READY FOR ANNIVERSARY POPUP */}
             <div className="hidden" aria-hidden="true">
                 <img src="/us.jpg" fetchPriority="high" loading="eager" alt="preload" />
                 <audio src="/song.mp3" preload="auto" />
@@ -192,12 +197,7 @@ export default function WhatsAppUI({
                         ) : (
                             <div onClick={() => setAppState("CHAT")} className={`flex items-center p-4 rounded-3xl cursor-pointer transition-all hover:scale-[1.02] active:scale-95 border backdrop-blur-md shadow-lg ${cardBg}`}>
                                 <div className={`w-14 h-14 rounded-full overflow-hidden mr-4 border-2 shadow-inner shrink-0 ${isLoveMode ? "border-rose-400 shadow-rose-500/30" : "border-indigo-400"}`}>
-                                    <img 
-                                        src={partnerImage || defaultPartnerImg} 
-                                        alt="Partner" 
-                                        className="w-full h-full object-cover" 
-                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
-                                    />
+                                    <img src={partnerImage || defaultPartnerImg} alt="Partner" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }} />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-center mb-1">
@@ -212,7 +212,6 @@ export default function WhatsAppUI({
                         <div className="pt-4">
                             <h3 className={`px-2 mb-3 text-xs font-black uppercase tracking-widest ${textSub}`}>Secret App Modules</h3>
 
-                            {/* 🔥 NEW ATTRACTIVE PROPOSAL BUTTON 🔥 */}
                             <motion.div 
                                 animate={{ scale: [1, 1.02, 1], boxShadow: ["0 0 0px rgba(244,63,94,0)", "0 0 20px rgba(244,63,94,0.6)", "0 0 0px rgba(244,63,94,0)"] }}
                                 transition={{ duration: 2, repeat: Infinity }}
@@ -250,25 +249,16 @@ export default function WhatsAppUI({
                             </div>
                         </div>
 
-                        {/* 🔥 ROMANTIC TEXT REVEAL 🔥 */}
                         <motion.div 
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 1 }}
                             className="mt-6 mb-8 flex flex-col items-center justify-center p-6 text-center select-none"
                         >
                             <div className="relative w-20 h-20 mb-3 flex items-center justify-center">
-                                <motion.div 
-                                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }} 
-                                    transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }} 
-                                    className={`absolute inset-0 rounded-full blur-xl ${isLoveMode ? 'bg-rose-500/30' : 'bg-indigo-500/20'}`}
-                                />
+                                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }} className={`absolute inset-0 rounded-full blur-xl ${isLoveMode ? 'bg-rose-500/30' : 'bg-indigo-500/20'}`} />
                                 <Heart size={40} strokeWidth={1} className={`${isLoveMode ? 'text-rose-400' : 'text-indigo-400'} animate-pulse`} fill="currentColor" />
                             </div>
-                            <h3 className={`text-lg font-serif italic mb-1 ${isLoveMode ? 'text-rose-300' : 'text-slate-400'}`}>
-                                "You are my today and all of my tomorrows."
-                            </h3>
-                            <p className={`text-[10px] font-bold uppercase tracking-widest ${isLoveMode ? 'text-rose-500/60' : 'text-slate-500/50'}`}>
-                                Marshmallow & Nutella
-                            </p>
+                            <h3 className={`text-lg font-serif italic mb-1 ${isLoveMode ? 'text-rose-300' : 'text-slate-400'}`}>"You are my today and all of my tomorrows."</h3>
+                            <p className={`text-[10px] font-bold uppercase tracking-widest ${isLoveMode ? 'text-rose-500/60' : 'text-slate-500/50'}`}>Marshmallow & Nutella</p>
                         </motion.div>
                     </motion.div>
                 )}
@@ -276,70 +266,33 @@ export default function WhatsAppUI({
                 {activeTab === 'status' && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                         <h3 className={`px-2 text-xs font-black uppercase tracking-widest ${textSub}`}>My Status Updates</h3>
-                        <div 
-                            className={`relative flex items-center p-4 rounded-3xl border backdrop-blur-md shadow-sm overflow-hidden ${cardBg} ${myStatuses.length > 0 ? "cursor-pointer hover:scale-[1.01] transition-transform" : ""}`}
-                            onClick={() => { if (myStatuses.length > 0) setStoryViewer({ open: true, owner: 'me', index: 0 }); }}
-                        >
-                            {myStatuses.length > 0 && (
-                                <div className="absolute inset-0 z-0 opacity-20 blur-xl pointer-events-none">
-                                    <img src={myStatuses[myStatuses.length - 1].image} className="w-full h-full object-cover" />
-                                </div>
-                            )}
+                        <div className={`relative flex items-center p-4 rounded-3xl border backdrop-blur-md shadow-sm overflow-hidden ${cardBg} ${myStatuses.length > 0 ? "cursor-pointer hover:scale-[1.01] transition-transform" : ""}`} onClick={() => { if (myStatuses.length > 0) setStoryViewer({ open: true, owner: 'me', index: 0 }); }}>
+                            {myStatuses.length > 0 && <div className="absolute inset-0 z-0 opacity-20 blur-xl pointer-events-none"><img src={myStatuses[myStatuses.length - 1].image} className="w-full h-full object-cover" /></div>}
                             <div className="relative w-16 h-16 flex items-center justify-center mr-4 z-10">
                                 {renderStatusRing(myStatuses.length)}
                                 <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-slate-200">
-                                   <img 
-                                        src={myStatuses.length > 0 ? myStatuses[myStatuses.length - 1].image : (profileImage || defaultMyImg)} 
-                                        alt="My Status" 
-                                        className="w-full h-full object-cover" 
-                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }}
-                                    />
+                                   <img src={myStatuses.length > 0 ? myStatuses[myStatuses.length - 1].image : (profileImage || defaultMyImg)} alt="My Status" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }} />
                                 </div>
-                                <label 
-                                    onPointerDown={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }} 
-                                    onClick={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }}
-                                    className="absolute bottom-0 right-0 w-6 h-6 rounded-full flex items-center justify-center border-2 border-black cursor-pointer hover:scale-110 transition-transform z-20" 
-                                    style={{ backgroundColor: isLoveMode ? "#f43f5e" : "#6366f1" }}
-                                >
+                                <label onPointerDown={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }} onClick={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }} className="absolute bottom-0 right-0 w-6 h-6 rounded-full flex items-center justify-center border-2 border-black cursor-pointer hover:scale-110 transition-transform z-20" style={{ backgroundColor: isLoveMode ? "#f43f5e" : "#6366f1" }}>
                                     <span className="text-white text-lg font-bold leading-none mb-0.5 pointer-events-none">+</span>
                                     <input type="file" accept="image/*" className="hidden" onChange={handleStatusFileSelect} />
                                 </label>
                             </div>
-                            <div className="relative z-10 flex-1">
-                                <h2 className="font-bold text-lg">My Status</h2>
-                                <p className={`text-sm font-medium ${textSub}`}>
-                                    {myStatuses.length > 0 ? `${myStatuses.length} update(s) • Tap to view` : "Tap + to add status (24h)"}
-                                </p>
-                            </div>
+                            <div className="relative z-10 flex-1"><h2 className="font-bold text-lg">My Status</h2><p className={`text-sm font-medium ${textSub}`}>{myStatuses.length > 0 ? `${myStatuses.length} update(s) • Tap to view` : "Tap + to add status (24h)"}</p></div>
                         </div>
 
                         <h3 className={`px-2 pt-2 text-xs font-black uppercase tracking-widest ${textSub}`}>Partner Updates</h3>
                         {partnerStatuses.length === 0 ? (
-                            <div className={`p-8 rounded-3xl border text-center text-sm font-medium ${cardBg} ${textSub}`}>
-                                No recent updates from {targetNode || "partner"}.
-                            </div>
+                            <div className={`p-8 rounded-3xl border text-center text-sm font-medium ${cardBg} ${textSub}`}>No recent updates from {targetNode || "partner"}.</div>
                         ) : (
-                            <div 
-                                onClick={() => setStoryViewer({ open: true, owner: 'partner', index: 0 })}
-                                className={`relative flex items-center p-4 rounded-3xl border backdrop-blur-md shadow-sm overflow-hidden cursor-pointer hover:scale-[1.01] transition-transform ${cardBg}`}
-                            >
+                            <div onClick={() => setStoryViewer({ open: true, owner: 'partner', index: 0 })} className={`relative flex items-center p-4 rounded-3xl border backdrop-blur-md shadow-sm overflow-hidden cursor-pointer hover:scale-[1.01] transition-transform ${cardBg}`}>
                                 <div className="relative w-16 h-16 flex items-center justify-center mr-4 z-10">
                                     {renderStatusRing(partnerStatuses.length)}
                                     <div className="w-[52px] h-[52px] rounded-full overflow-hidden bg-slate-200">
-                                        <img 
-                                            src={partnerStatuses[partnerStatuses.length - 1].image || partnerImage || defaultPartnerImg} 
-                                            alt="Partner Status" 
-                                            className="w-full h-full object-cover" 
-                                            onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
-                                        />
+                                        <img src={partnerStatuses[partnerStatuses.length - 1].image || partnerImage || defaultPartnerImg} alt="Partner Status" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }} />
                                     </div>
                                 </div>
-                                <div className="flex-1">
-                                    <h2 className="font-bold text-lg">{targetNode || "Partner"}</h2>
-                                    <p className={`text-sm font-medium ${textSub}`}>
-                                        {partnerStatuses.length} new update(s) • Tap to view
-                                    </p>
-                                </div>
+                                <div className="flex-1"><h2 className="font-bold text-lg">{targetNode || "Partner"}</h2><p className={`text-sm font-medium ${textSub}`}>{partnerStatuses.length} new update(s) • Tap to view</p></div>
                             </div>
                         )}
                     </motion.div>
@@ -350,40 +303,19 @@ export default function WhatsAppUI({
                         <h3 className={`px-2 text-xs font-black uppercase tracking-widest ${textSub}`}>Recent Calls</h3>
                         {callLogs.length === 0 ? (
                             <div className={`flex items-center p-4 rounded-3xl border backdrop-blur-md shadow-sm ${cardBg}`}>
-                                <div className={`w-12 h-12 rounded-full mr-4 flex items-center justify-center bg-slate-500/10`}>
-                                    <Phone className={textSub} size={20} />
-                                </div>
-                                <div className="flex-1">
-                                    <h2 className="font-bold text-lg opacity-50">No call history</h2>
-                                    <p className={`text-sm font-medium ${textSub}`}>Your secure calls in this room will appear here.</p>
-                                </div>
+                                <div className={`w-12 h-12 rounded-full mr-4 flex items-center justify-center bg-slate-500/10`}><Phone className={textSub} size={20} /></div>
+                                <div className="flex-1"><h2 className="font-bold text-lg opacity-50">No call history</h2><p className={`text-sm font-medium ${textSub}`}>Your secure calls in this room will appear here.</p></div>
                             </div>
                         ) : (
                             callLogs.map((call) => (
                                 <div key={call.id} className={`flex items-center justify-between p-4 rounded-3xl border backdrop-blur-md shadow-sm ${cardBg}`}>
                                     <div className="flex items-center">
-                                        <div className={`w-12 h-12 rounded-full mr-4 overflow-hidden border ${isLoveMode ? "border-rose-400" : "border-indigo-400"}`}>
-                                            <img 
-                                                src={partnerImage || defaultPartnerImg} 
-                                                className="w-full h-full object-cover" 
-                                                onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
-                                            />
-                                        </div>
-                                        <div>
-                                            <h2 className={`font-bold text-lg ${call.type === 'missed' ? 'text-rose-500' : ''}`}>{targetNode}</h2>
-                                            <div className={`flex items-center gap-1 text-sm font-medium ${textSub}`}>
-                                                {call.type === 'incoming' ? <PhoneIncoming size={14} className="text-emerald-500"/> : <PhoneOutgoing size={14} className="text-blue-500"/>}
-                                                {call.time}
-                                            </div>
-                                        </div>
+                                        <div className={`w-12 h-12 rounded-full mr-4 overflow-hidden border ${isLoveMode ? "border-rose-400" : "border-indigo-400"}`}><img src={partnerImage || defaultPartnerImg} className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }} /></div>
+                                        <div><h2 className={`font-bold text-lg ${call.type === 'missed' ? 'text-rose-500' : ''}`}>{targetNode}</h2><div className={`flex items-center gap-1 text-sm font-medium ${textSub}`}>{call.type === 'incoming' ? <PhoneIncoming size={14} className="text-emerald-500"/> : <PhoneOutgoing size={14} className="text-blue-500"/>}{call.time}</div></div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <div className={`p-2 rounded-full ${isLoveMode ? "bg-rose-500/10 text-rose-500" : "bg-indigo-500/10 text-indigo-500"}`}>
-                                            {call.isVideo ? <Video size={20}/> : <Phone size={20}/>}
-                                        </div>
-                                        <button onClick={() => handleRemoveCallLog(call.id)} className="p-2 rounded-full hover:bg-rose-500/20 text-rose-500 transition-colors">
-                                            <Trash2 size={18} />
-                                        </button>
+                                        <div className={`p-2 rounded-full ${isLoveMode ? "bg-rose-500/10 text-rose-500" : "bg-indigo-500/10 text-indigo-500"}`}>{call.isVideo ? <Video size={20}/> : <Phone size={20}/>}</div>
+                                        <button onClick={() => handleRemoveCallLog(call.id)} className="p-2 rounded-full hover:bg-rose-500/20 text-rose-500 transition-colors"><Trash2 size={18} /></button>
                                     </div>
                                 </div>
                             ))
@@ -433,85 +365,28 @@ export default function WhatsAppUI({
                         <div className="absolute top-2 inset-x-2 flex gap-1 z-30">
                             {activeStories.map((_, i) => (
                                 <div key={i} className="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
-                                    <motion.div 
-                                        className="h-full bg-white" 
-                                        initial={{ width: i < storyViewer.index ? "100%" : "0%" }} 
-                                        animate={{ width: i === storyViewer.index ? "100%" : (i < storyViewer.index ? "100%" : "0%") }} 
-                                        transition={i === storyViewer.index ? { duration: 5, ease: "linear" } : { duration: 0 }} 
-                                    />
+                                    <motion.div className="h-full bg-white" initial={{ width: i < storyViewer.index ? "100%" : "0%" }} animate={{ width: i === storyViewer.index ? "100%" : (i < storyViewer.index ? "100%" : "0%") }} transition={i === storyViewer.index ? { duration: 5, ease: "linear" } : { duration: 0 }} />
                                 </div>
                             ))}
                         </div>
-                        
                         <div className="absolute top-6 inset-x-4 flex justify-between items-center z-30">
                             <div className="flex items-center gap-2.5 text-white font-bold">
-                                <img 
-                                    src={storyViewer.owner === 'me' ? (profileImage || defaultMyImg) : (partnerImage || defaultPartnerImg)} 
-                                    className="w-9 h-9 rounded-full object-cover border border-white/40"
-                                    onError={(e) => { e.target.onerror = null; e.target.src = storyViewer.owner === 'me' ? defaultMyImg : defaultPartnerImg; }}
-                                />
-                                <div>
-                                    <p className="text-sm leading-tight">{storyViewer.owner === 'me' ? "My Status" : (targetNode || "Partner")}</p>
-                                    <p className="text-[10px] text-white/70 font-normal">{new Date(currentStory.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                </div>
+                                <img src={storyViewer.owner === 'me' ? (profileImage || defaultMyImg) : (partnerImage || defaultPartnerImg)} className="w-9 h-9 rounded-full object-cover border border-white/40" onError={(e) => { e.target.onerror = null; e.target.src = storyViewer.owner === 'me' ? defaultMyImg : defaultPartnerImg; }} />
+                                <div><p className="text-sm leading-tight">{storyViewer.owner === 'me' ? "My Status" : (targetNode || "Partner")}</p><p className="text-[10px] text-white/70 font-normal">{new Date(currentStory.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p></div>
                             </div>
                             <button onClick={() => { setStoryViewer({ open: false, owner: 'me', index: 0 }); setShowViewsPanel(false); }} className="text-white p-1.5 bg-white/10 rounded-full"><X size={24}/></button>
                         </div>
-
                         <div className="flex-1 flex items-center justify-center relative">
                             <div className="absolute left-0 inset-y-0 w-1/3 z-20" onClick={() => setStoryViewer(prev => ({ ...prev, index: Math.max(0, prev.index - 1) }))} />
                             <div className="absolute right-0 inset-y-0 w-1/3 z-20" onClick={() => { if (storyViewer.index >= activeStories.length - 1) setStoryViewer({ open: false, owner: 'me', index: 0 }); else setStoryViewer(prev => ({ ...prev, index: prev.index + 1 })); }} />
                             <img src={currentStory.image} className="w-full h-full object-contain" />
-                            {currentStory.text && (
-                                <div className="absolute bottom-20 bg-black/60 backdrop-blur-md text-white px-6 py-2.5 rounded-2xl text-base font-medium max-w-[85%] text-center z-20">
-                                    {currentStory.text}
-                                </div>
-                            )}
+                            {currentStory.text && <div className="absolute bottom-20 bg-black/60 backdrop-blur-md text-white px-6 py-2.5 rounded-2xl text-base font-medium max-w-[85%] text-center z-20">{currentStory.text}</div>}
                         </div>
-
-                        {storyViewer.owner === 'me' && (
-                            <div className="absolute bottom-6 inset-x-4 flex justify-between items-center z-30">
-                                <button onClick={() => setShowViewsPanel(true)} className="flex items-center gap-1.5 text-white bg-black/60 px-5 py-2.5 rounded-full font-bold backdrop-blur-md border border-white/10">
-                                    <Eye size={18}/> {(currentStory.seenBy || []).length}
-                                </button>
-                                <button onClick={handleDeleteCurrentStatus} className="text-rose-500 bg-black/60 p-2.5 rounded-full backdrop-blur-md border border-white/10">
-                                    <Trash2 size={20}/>
-                                </button>
-                            </div>
-                        )}
-
-                        {showViewsPanel && storyViewer.owner === 'me' && (
-                            <motion.div initial={{ y: 200 }} animate={{ y: 0 }} className="absolute bottom-0 inset-x-0 h-1/2 bg-zinc-900 rounded-t-3xl p-6 z-40 border-t border-zinc-800 shadow-2xl">
-                                <div className="flex justify-between items-center text-white mb-6">
-                                    <h2 className="font-bold text-lg flex items-center gap-2"><Eye size={20}/> Viewed by {(currentStory.seenBy || []).length}</h2>
-                                    <button onClick={() => setShowViewsPanel(false)}><X size={24}/></button>
-                                </div>
-                                <div className="space-y-4 overflow-y-auto max-h-[calc(100%-60px)]">
-                                    {(currentStory.seenBy || []).length === 0 ? (
-                                        <p className="text-slate-400 text-sm text-center py-8">No views yet.</p>
-                                    ) : (
-                                        currentStory.seenBy.map((view, i) => (
-                                            <div key={i} className="flex items-center gap-4 text-white">
-                                                <img 
-                                                    src={view.pfp || partnerImage || defaultPartnerImg} 
-                                                    className="w-11 h-11 rounded-full object-cover border border-zinc-700" 
-                                                    onError={(e) => { e.target.onerror = null; e.target.src = defaultPartnerImg; }}
-                                                />
-                                                <div>
-                                                    <p className="font-bold text-sm">{view.name}</p>
-                                                    <p className="text-xs text-slate-400">Seen at {view.time}</p>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </motion.div>
-                        )}
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* SETTINGS MODAL */}
+            {/* SETTINGS MODAL WITH VAULT 🔥 */}
             <AnimatePresence>
                 {showProfileModal && (
                     <motion.div 
@@ -526,26 +401,66 @@ export default function WhatsAppUI({
                         <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-10" onClick={(e) => e.stopPropagation()}>
                             <div className={`p-6 rounded-3xl border shadow-xl flex flex-col items-center text-center ${cardBg}`}>
                                 <div className="relative group w-32 h-32 rounded-full overflow-hidden mb-4 bg-slate-200 border-4 border-slate-300/50 shadow-inner">
-                                    <img 
-                                        src={profileImage || defaultMyImg} 
-                                        alt="Profile" 
-                                        className="w-full h-full object-cover" 
-                                        onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }}
-                                    />
-                                    <label 
-                                        onPointerDown={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }}
-                                        onClick={(e) => { e.stopPropagation(); if (ignorePanicRef) ignorePanicRef.current = true; }}
-                                        className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer backdrop-blur-sm z-50"
-                                    >
-                                        {isSavingMedia ? <Loader2 className="text-white animate-spin" size={28} /> : (
-                                            <><Camera className="text-white mb-1 pointer-events-none" size={28} /><span className="text-white text-[10px] font-bold uppercase tracking-widest pointer-events-none">Edit</span></>
-                                        )}
-                                        <input type="file" accept="image/*" className="hidden" onChange={handleProfileUpload} />
-                                    </label>
+                                    <img src={profileImage || defaultMyImg} alt="Profile" className="w-full h-full object-cover" onError={(e) => { e.target.onerror = null; e.target.src = defaultMyImg; }} />
                                 </div>
                                 <h2 className="text-2xl font-black tracking-tight">You</h2>
                                 <p className={`mt-1 text-sm font-medium ${textSub}`}>Saved securely in Database for this room.</p>
                             </div>
+
+                            {/* 🔥 SECURE VAULT FOR SURPRISE SNAPS */}
+                            {proposalSnaps && proposalSnaps.length > 0 && (
+                                <div className={`p-5 rounded-3xl border shadow-sm ${cardBg}`}>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h3 className={`text-xs font-black uppercase tracking-widest ${textSub}`}>Surprise Vault</h3>
+                                        {!isGalleryUnlocked && <Key size={14} className="text-amber-500" />}
+                                    </div>
+                                    
+                                    {!isGalleryUnlocked ? (
+                                        <div className="flex flex-col items-center py-4">
+                                            <div onClick={() => setShowVaultPrompt(true)} className="w-16 h-16 rounded-full bg-slate-500/10 flex items-center justify-center cursor-pointer mb-2">
+                                                <Lock size={24} className={textSub} />
+                                            </div>
+                                            <p className={`text-xs font-medium ${textSub}`}>Tap to unlock gallery</p>
+                                            
+                                            {showVaultPrompt && (
+                                                <div className="mt-4 w-full flex gap-2">
+                                                    <input 
+                                                        type="password" 
+                                                        value={vaultPassword}
+                                                        onChange={(e) => setVaultPassword(e.target.value)}
+                                                        placeholder="Enter Passcode..." 
+                                                        className="flex-1 bg-black/10 px-4 py-2 rounded-xl text-sm outline-none"
+                                                    />
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (vaultPassword === "dishachirag12") setIsGalleryUnlocked(true);
+                                                            else alert("Incorrect Passcode!");
+                                                            setVaultPassword("");
+                                                        }}
+                                                        className="bg-rose-500 text-white px-4 py-2 rounded-xl font-bold text-sm"
+                                                    >
+                                                        Unlock
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                                            {proposalSnaps.map((snap) => (
+                                                <div 
+                                                    key={snap.id} 
+                                                    onClick={() => setExpandedSnap(snap)}
+                                                    className="w-24 h-32 rounded-xl overflow-hidden shrink-0 border-2 shadow-md relative cursor-pointer active:scale-95 transition-transform" 
+                                                    style={{ borderColor: isLoveMode ? "#f43f5e" : "#3b82f6" }}
+                                                >
+                                                    <img src={snap.url} alt="Snap" className="w-full h-full object-cover" />
+                                                    <div className="absolute bottom-1 right-1 bg-black/50 rounded-full p-1"><Heart size={12} className="text-rose-400" /></div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             <div className="space-y-3">
                                 <div onClick={(e) => { e.stopPropagation(); setIsDarkMode(!isDarkMode); }} className={`flex items-center p-4 rounded-3xl cursor-pointer transition-transform active:scale-95 border shadow-sm ${cardBg}`}>
@@ -562,6 +477,20 @@ export default function WhatsAppUI({
                 )}
             </AnimatePresence>
 
+            {/* 🔥 FULL SCREEN EXPANDED SNAP WITH DELETE OPTION */}
+            <AnimatePresence>
+                {expandedSnap && (
+                    <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-[200] bg-black/95 flex flex-col p-4 backdrop-blur-sm">
+                        <div className="flex justify-between items-center z-10 pt-4 pb-2">
+                            <button onClick={() => setExpandedSnap(null)} className="p-2 bg-white/10 rounded-full text-white"><X size={24}/></button>
+                            <button onClick={() => { onDeleteSnap(expandedSnap.id); setExpandedSnap(null); }} className="p-2 bg-rose-500/20 text-rose-500 rounded-full flex items-center gap-2"><Trash2 size={20}/> <span className="font-bold">Delete</span></button>
+                        </div>
+                        <div className="flex-1 flex items-center justify-center">
+                            <img src={expandedSnap.url} alt="Expanded Snap" className="max-w-full max-h-[80vh] rounded-2xl shadow-2xl object-contain" />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 }

